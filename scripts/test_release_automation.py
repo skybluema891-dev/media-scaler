@@ -33,6 +33,16 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn('MediaScaler-1.2.0-macos-x86_64.dmg', assets)
         self.assertIn('MediaScaler-1.2.0-windows-setup.exe', assets)
 
+    def test_draft_lookup_when_tag_endpoint_returns_404(self):
+        draft = {'id': 123, 'tag_name': 'v1.2.0', 'draft': True}
+        with patch.object(automation, 'api', side_effect=[None, [draft]]) as api:
+            self.assertEqual(automation.release_for_tag('v1.2.0'), draft)
+            self.assertEqual(api.call_args_list[-1].args[0], '/releases?per_page=100&page=1')
+
+    def test_missing_release(self):
+        with patch.object(automation, 'api', side_effect=[None, []]):
+            self.assertIsNone(automation.release_for_tag('v1.2.0'))
+
     def test_incomplete_artifacts_never_contact_github(self):
         build = automation.ROOT / 'build'
         build.mkdir(exist_ok=True)

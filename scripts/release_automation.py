@@ -81,6 +81,25 @@ def expected_assets(version):
         'macos-x86_64.zip', 'macos-x86_64.dmg')]
 
 
+def release_for_tag(tag):
+    # The tag endpoint can return 404 for drafts even with contents:write.
+    # List releases with authentication to recover an interrupted draft upload.
+    release = api('/releases/tags/' + tag)
+    if release:
+        return release
+    page = 1
+    while True:
+        releases = api(f'/releases?per_page=100&page={page}') or []
+        matches = [item for item in releases if item['tag_name'] == tag]
+        if len(matches) > 1:
+            raise ValueError('Multiple releases match tag ' + tag)
+        if matches:
+            return matches[0]
+        if len(releases) < 100:
+            return None
+        page += 1
+
+
 def publish():
     version, _ = version_from((ROOT / 'pubspec.yaml').read_text(encoding='utf-8-sig'))
     tag = 'v' + version
@@ -98,7 +117,7 @@ def publish():
                 digest.update(block)
         checksums.append(f'{digest.hexdigest()}  {name}\n')
     (folder / 'SHA256SUMS.txt').write_text(''.join(checksums), encoding='utf-8')
-    existing = api('/releases/tags/' + tag)
+    existing = release_for_tag(tag)
     if existing and not existing['draft']:
         print('Already published; leaving existing release unchanged.')
         return
@@ -116,9 +135,12 @@ def publish():
     if not existing:
         subprocess.run(['gh', 'release', 'create', tag, '--draft', '--verify-tag',
             '--title', 'Media Scaler ' + tag, '--generate-notes'], env=env, check=True)
+        existing = release_for_tag(tag)
+    if not existing:
+        raise ValueError('Created draft could not be found; refusing to publish.')
     subprocess.run(['gh', 'release', 'upload', tag, *[str(folder / n) for n in names],
                     str(folder / 'SHA256SUMS.txt'), '--clobber'], env=env, check=True)
-    release = api('/releases/tags/' + tag)
+    release = api('/releases/' + str(existing['id']))
     uploaded = {a['name'] for a in release['assets'] if a['state'] == 'uploaded' and a['size'] > 0}
     if not set(names + ['SHA256SUMS.txt']).issubset(uploaded):
         raise ValueError('Release upload is incomplete; leaving it as a draft.')
