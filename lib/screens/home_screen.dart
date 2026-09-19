@@ -874,6 +874,29 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const Divider(height: 28),
             Text('保存先', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<bool>(
+              initialValue: settings.renameOutput,
+              decoration: const InputDecoration(labelText: 'タイトル（ファイル名）の変更'),
+              items: const [
+                DropdownMenuItem(value: true, child: Text('変更OK（サイズを付ける）')),
+                DropdownMenuItem(value: false, child: Text('変更NG（サイズを付けない）')),
+              ],
+              onChanged: _processing
+                  ? null
+                  : (value) {
+                      if (value == null) return;
+                      setState(() => settings.renameOutput = value);
+                      unawaited(settings.save());
+                    },
+            ),
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                '同名ファイルがある場合は、上書きせず連番を付けます。動画の拡張子は.mp4になります。',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
             RadioGroup<bool>(
               groupValue: settings.sameFolder,
               onChanged: (value) {

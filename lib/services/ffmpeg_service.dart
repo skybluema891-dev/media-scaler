@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import '../models/media_item.dart';
 import 'app_logger.dart';
 import 'app_settings.dart';
+import 'output_name.dart';
 
 typedef ProgressCallback = void Function(
   double progress,
@@ -495,16 +496,11 @@ class FfmpegService {
     final extension = item.kind == MediaKind.video
         ? '.mp4'
         : p.extension(item.path);
-    final stem = p.basenameWithoutExtension(item.path);
-    final suffix = settings.sizeType == SizeType.multiplier
-        ? '${settings.scaleMode == ScaleMode.upscale ? 'upscale' : 'downscale'}_${settings.multiplier}x'
-        : settings.sizeType == SizeType.preset
-        ? '${settings.presetHeight}p'
-        : '${settings.customWidth}x${settings.customHeight}';
-    var candidate = p.join(directory, '${stem}_$suffix$extension');
+    final stem = outputStem(p.basenameWithoutExtension(item.path), settings);
+    var candidate = p.join(directory, '$stem$extension');
     var number = 1;
     while (await File(candidate).exists()) {
-      candidate = p.join(directory, '${stem}_${suffix}_$number$extension');
+      candidate = p.join(directory, '${stem}_$number$extension');
       number++;
     }
     return candidate;

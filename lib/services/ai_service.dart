@@ -9,6 +9,7 @@ import '../models/media_item.dart';
 import 'app_settings.dart';
 import 'app_logger.dart';
 import 'ffmpeg_service.dart';
+import 'output_name.dart';
 
 class AiService {
   Process? _process;
@@ -193,11 +194,11 @@ class AiService {
       // Atomic reservation prevents overwriting pre-existing outputs, including races.
       final stem = preview
           ? 'preview'
-          : '${p.basenameWithoutExtension(item.path)}_ai_${settings.sizeType == SizeType.multiplier
-                ? '${settings.multiplier}x'
-                : settings.sizeType == SizeType.preset
-                ? '${settings.presetHeight}p'
-                : '${settings.customWidth}x${settings.customHeight}'}';
+          : outputStem(
+              p.basenameWithoutExtension(item.path),
+              settings,
+              ai: true,
+            );
       String target;
       var index = 0;
       while (true) {

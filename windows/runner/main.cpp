@@ -1,6 +1,7 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
+#include <string>
 
 #include "flutter_window.h"
 #include "utils.h"
@@ -27,8 +28,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
+  std::wstring title =
+      L"\u30e1\u30c7\u30a3\u30a2\u30fb\u30b9\u30b1\u30fc\u30e9\u30fc";
+  // Read Flutter's build version, omitting only the optional build metadata.
+  const std::string version = std::string(FLUTTER_VERSION).substr(
+      0, std::string(FLUTTER_VERSION).find('+'));
+  title += L" v" + std::wstring(version.begin(), version.end());
   if (!window.Create(
-          L"\u30e1\u30c7\u30a3\u30a2\u30fb\u30b9\u30b1\u30fc\u30e9\u30fc",
+          title.c_str(),
           origin, size)) {
     return EXIT_FAILURE;
   }

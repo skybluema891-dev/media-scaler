@@ -27,6 +27,7 @@ class AppSettings extends ChangeNotifier {
   int jpegQuality = 90;
   bool useGpu = true;
   bool sameFolder = true;
+  bool renameOutput = true;
   String outputDirectory = '';
   ThemeMode themeMode = ThemeMode.system;
   NormalQuality aiQuality = NormalQuality.standard;
@@ -81,6 +82,7 @@ class AppSettings extends ChangeNotifier {
     value.jpegQuality = prefs.getInt('jpegQuality') ?? 90;
     value.useGpu = prefs.getBool('useGpu') ?? true;
     value.sameFolder = prefs.getBool('sameFolder') ?? true;
+    value.renameOutput = prefs.getBool('renameOutput') ?? true;
     value.outputDirectory = prefs.getString('outputDirectory') ?? '';
     value.themeMode = _enumValue(
       ThemeMode.values,
@@ -123,6 +125,7 @@ class AppSettings extends ChangeNotifier {
       _prefs.setInt('jpegQuality', jpegQuality),
       _prefs.setBool('useGpu', useGpu),
       _prefs.setBool('sameFolder', sameFolder),
+      _prefs.setBool('renameOutput', renameOutput),
       _prefs.setString('outputDirectory', outputDirectory),
       _prefs.setString('themeMode', themeMode.name),
     ]);
