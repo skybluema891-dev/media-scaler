@@ -17,8 +17,15 @@ SUFFIX = ".exe" if os.name == "nt" else ""
 ENGINE = ([str(TOOLS_ROOT / "tools/ai/windows/python/python.exe"),
            str(TOOLS_ROOT / "tools/ai/windows/worker.py")] if os.name == "nt" else
           [str(TOOLS_ROOT / "tools/ai/macos/media_ai/media_ai")])
-FF = str(TOOLS_ROOT/"tools/ffmpeg/windows/ffmpeg.exe") if os.name == "nt" else shutil.which("ffmpeg")
-FP = str(TOOLS_ROOT/"tools/ffmpeg/windows/ffprobe.exe") if os.name == "nt" else shutil.which("ffprobe")
+def ffmpeg_tool(name):
+    bundled = TOOLS_ROOT / "tools/ffmpeg" / OS / (name + SUFFIX)
+    if os.name == "nt" or "MEDIA_SCALER_TEST_APP" in os.environ:
+        return str(bundled)
+    return shutil.which(name)
+
+
+FF = ffmpeg_tool("ffmpeg")
+FP = ffmpeg_tool("ffprobe")
 
 
 class WorkerTests(unittest.TestCase):

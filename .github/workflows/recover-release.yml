@@ -1,0 +1,37 @@
+name: Recover release publication
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Original Build desktop releases run ID (all three builds must have succeeded)
+        required: true
+        type: string
+  push:
+    tags: ['retry-release-*']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: desktop-release-${{ github.repository }}-publish
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m unittest discover -s scripts -p 'test_release_*.py'
+      - name: Verify original builds and publish their artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_RUN_ID: ${{ inputs.run_id }}
+        run: |
+          run_id="$REQUESTED_RUN_ID"
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            run_id="${GITHUB_REF_NAME#retry-release-}"
+          fi
+          python scripts/recover_release.py "$run_id"

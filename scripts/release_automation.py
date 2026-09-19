@@ -27,7 +27,7 @@ def api(path, data=None, method=None):
         data=None if data is None else json.dumps(data).encode(), method=method,
         headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
                  'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json',
-                 'User-Agent': 'MediaScaler-release'})
+                 'User-Agent': 'MediaScaler-release', 'Cache-Control': 'no-cache'})
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             return json.load(response)
@@ -100,10 +100,12 @@ def release_for_tag(tag):
         page += 1
 
 
-def publish():
-    version, _ = version_from((ROOT / 'pubspec.yaml').read_text(encoding='utf-8-sig'))
+def publish(version=None, sha=None):
+    if version is None:
+        version, _ = version_from((ROOT / 'pubspec.yaml').read_text(encoding='utf-8-sig'))
     tag = 'v' + version
-    sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+    if sha is None:
+        sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
     folder = ROOT / 'artifacts'
     names = expected_assets(version)
     for name in names:
@@ -133,9 +135,10 @@ def publish():
         api('/git/refs', {'ref': 'refs/tags/' + tag, 'sha': sha})
     env = dict(os.environ, GH_REPO=os.environ['GITHUB_REPOSITORY'])
     if not existing:
-        subprocess.run(['gh', 'release', 'create', tag, '--draft', '--verify-tag',
-            '--title', 'Media Scaler ' + tag, '--generate-notes'], env=env, check=True)
-        existing = release_for_tag(tag)
+        notes = api('/releases/generate-notes', {'tag_name': tag, 'target_commitish': sha})
+        existing = api('/releases', {'tag_name': tag, 'target_commitish': sha,
+            'name': 'Media Scaler ' + tag, 'body': notes['body'], 'draft': True,
+            'prerelease': False})
     if not existing:
         raise ValueError('Created draft could not be found; refusing to publish.')
     subprocess.run(['gh', 'release', 'upload', tag, *[str(folder / n) for n in names],

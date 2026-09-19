@@ -43,6 +43,32 @@ class ReleaseTests(unittest.TestCase):
         with patch.object(automation, 'api', side_effect=[None, []]):
             self.assertIsNone(automation.release_for_tag('v1.2.0'))
 
+    def test_draft_is_verified_and_published_by_id(self):
+        build = automation.ROOT / 'build'
+        build.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=build) as temporary:
+            root = Path(temporary)
+            (root / 'pubspec.yaml').write_text('version: 1.2.0+5\n')
+            (root / 'artifacts').mkdir()
+            names = expected_assets('1.2.0')
+            for name in names:
+                (root / 'artifacts' / name).write_bytes(b'test artifact')
+            draft = {'draft': True, 'id': 123}
+            uploaded = dict(draft, html_url='https://github.com/example/app/releases/tag/v1.2.0',
+                assets=[{'name': name, 'state': 'uploaded', 'size': 13}
+                        for name in names + ['SHA256SUMS.txt']])
+            with patch.object(automation, 'ROOT', root), \
+                 patch.dict(automation.os.environ, {'GITHUB_REPOSITORY': 'example/app'}), \
+                 patch.object(automation.subprocess, 'check_output', return_value='abc\n'), \
+                 patch.object(automation.subprocess, 'run') as run, \
+                 patch.object(automation, 'release_for_tag', return_value=draft), \
+                 patch.object(automation, 'api', side_effect=[
+                     {'object': {'type': 'commit', 'sha': 'abc'}}, uploaded, {}]) as api:
+                automation.publish()
+                self.assertEqual(run.call_count, 1)
+                self.assertEqual(api.call_args_list[1].args, ('/releases/123',))
+                api.assert_called_with('/releases/123', {'draft': False, 'make_latest': 'legacy'}, 'PATCH')
+
     def test_incomplete_artifacts_never_contact_github(self):
         build = automation.ROOT / 'build'
         build.mkdir(exist_ok=True)
