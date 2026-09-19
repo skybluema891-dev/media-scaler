@@ -36,8 +36,11 @@ def recover(run_id):
     folder = ROOT / 'artifacts'
     if folder.exists() and any(folder.iterdir()):
         raise ValueError('Artifact directory must be empty before recovery')
-    subprocess.run(['gh', 'run', 'download', run_id, '--repo', repository,
-                    '--dir', str(folder)], check=True)
+    # gh nests multiple artifacts by name; selecting each one separately merges
+    # its files directly into the same directory, as download-artifact does.
+    for name in ('windows-installer', 'macos-15', 'macos-15-intel'):
+        subprocess.run(['gh', 'run', 'download', run_id, '--repo', repository,
+                        '--name', name, '--dir', str(folder)], check=True)
     publish(version=version, sha=sha)
 
 

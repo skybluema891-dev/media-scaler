@@ -33,5 +33,6 @@ jobs:
           run_id="$REQUESTED_RUN_ID"
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             run_id="${GITHUB_REF_NAME#retry-release-}"
+            run_id="${run_id%%-*}"
           fi
           python scripts/recover_release.py "$run_id"
