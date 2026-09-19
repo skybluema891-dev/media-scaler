@@ -119,6 +119,22 @@ def publish(version=None, sha=None):
                 digest.update(block)
         checksums.append(f'{digest.hexdigest()}  {name}\n')
     (folder / 'SHA256SUMS.txt').write_text(''.join(checksums), encoding='utf-8')
+    repository = os.environ['GITHUB_REPOSITORY']
+    manifest = {
+        'tag_name': tag,
+        'draft': False,
+        'prerelease': False,
+        'assets': [{
+            'name': name,
+            'state': 'uploaded',
+            'size': (folder / name).stat().st_size,
+            'browser_download_url':
+                f'https://github.com/{repository}/releases/download/{tag}/{name}',
+        } for name in names],
+    }
+    (folder / 'latest.json').write_text(
+        json.dumps(manifest, ensure_ascii=False, separators=(',', ':')) + '\n',
+        encoding='utf-8')
     existing = release_for_tag(tag)
     if existing and not existing['draft']:
         print('Already published; leaving existing release unchanged.')
@@ -133,7 +149,7 @@ def publish(version=None, sha=None):
             raise ValueError('Existing tag points to another commit. Increment version instead.')
     else:
         api('/git/refs', {'ref': 'refs/tags/' + tag, 'sha': sha})
-    env = dict(os.environ, GH_REPO=os.environ['GITHUB_REPOSITORY'])
+    env = dict(os.environ, GH_REPO=repository)
     if not existing:
         notes = api('/releases/generate-notes', {'tag_name': tag, 'target_commitish': sha})
         existing = api('/releases', {'tag_name': tag, 'target_commitish': sha,
@@ -142,10 +158,11 @@ def publish(version=None, sha=None):
     if not existing:
         raise ValueError('Created draft could not be found; refusing to publish.')
     subprocess.run(['gh', 'release', 'upload', tag, *[str(folder / n) for n in names],
-                    str(folder / 'SHA256SUMS.txt'), '--clobber'], env=env, check=True)
+                    str(folder / 'SHA256SUMS.txt'), str(folder / 'latest.json'), '--clobber'],
+                   env=env, check=True)
     release = api('/releases/' + str(existing['id']))
     uploaded = {a['name'] for a in release['assets'] if a['state'] == 'uploaded' and a['size'] > 0}
-    if not set(names + ['SHA256SUMS.txt']).issubset(uploaded):
+    if not set(names + ['SHA256SUMS.txt', 'latest.json']).issubset(uploaded):
         raise ValueError('Release upload is incomplete; leaving it as a draft.')
     api('/releases/' + str(release['id']), {'draft': False, 'make_latest': 'legacy'}, 'PATCH')
     print('Published: ' + release['html_url'])

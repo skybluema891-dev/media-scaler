@@ -1,3 +1,4 @@
+import json
 import unittest
 import tempfile
 from pathlib import Path
@@ -56,7 +57,7 @@ class ReleaseTests(unittest.TestCase):
             draft = {'draft': True, 'id': 123}
             uploaded = dict(draft, html_url='https://github.com/example/app/releases/tag/v1.2.0',
                 assets=[{'name': name, 'state': 'uploaded', 'size': 13}
-                        for name in names + ['SHA256SUMS.txt']])
+                        for name in names + ['SHA256SUMS.txt', 'latest.json']])
             with patch.object(automation, 'ROOT', root), \
                  patch.dict(automation.os.environ, {'GITHUB_REPOSITORY': 'example/app'}), \
                  patch.object(automation.subprocess, 'check_output', return_value='abc\n'), \
@@ -66,6 +67,10 @@ class ReleaseTests(unittest.TestCase):
                      {'object': {'type': 'commit', 'sha': 'abc'}}, uploaded, {}]) as api:
                 automation.publish()
                 self.assertEqual(run.call_count, 1)
+                manifest = json.loads(
+                    (root / 'artifacts' / 'latest.json').read_text())
+                self.assertEqual(manifest['tag_name'], 'v1.2.0')
+                self.assertEqual(len(manifest['assets']), 5)
                 self.assertEqual(api.call_args_list[1].args, ('/releases/123',))
                 api.assert_called_with('/releases/123', {'draft': False, 'make_latest': 'legacy'}, 'PATCH')
 
@@ -76,6 +81,7 @@ class ReleaseTests(unittest.TestCase):
             root = Path(temporary)
             (root / 'pubspec.yaml').write_text('version: 1.2.0+5\n')
             with patch.object(automation, 'ROOT', root), \
+                 patch.dict(automation.os.environ, {'GITHUB_REPOSITORY': 'example/app'}), \
                  patch.object(automation.subprocess, 'check_output', return_value='abc\n'), \
                  patch.object(automation, 'api') as api:
                 with self.assertRaisesRegex(ValueError, 'Missing or empty'):
@@ -92,6 +98,7 @@ class ReleaseTests(unittest.TestCase):
             for name in expected_assets('1.2.0'):
                 (root / 'artifacts' / name).write_bytes(b'test artifact')
             with patch.object(automation, 'ROOT', root), \
+                 patch.dict(automation.os.environ, {'GITHUB_REPOSITORY': 'example/app'}), \
                  patch.object(automation.subprocess, 'check_output', return_value='abc\n'), \
                  patch.object(automation.subprocess, 'run') as run, \
                  patch.object(automation, 'api', return_value={'draft': False}) as api:

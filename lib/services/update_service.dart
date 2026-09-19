@@ -28,6 +28,8 @@ class AppUpdate {
   final String assetName;
 }
 
+class _GitHubRateLimitException implements Exception {}
+
 class UpdateService {
   static const timeout = Duration(seconds: 12);
   static bool validRepository(String value) =>
@@ -68,34 +70,27 @@ class UpdateService {
     final platform = await target();
     final client = HttpClient()..connectionTimeout = timeout;
     try {
-      final data = await (() async {
-        final request = await client.getUrl(
+      dynamic data;
+      try {
+        data = await _getJson(
+          client,
           Uri.https('api.github.com', '/repos/$repo/releases/latest'),
-        );
-        request.followRedirects = false;
-        request.headers.set('Accept', 'application/vnd.github+json');
-        request.headers.set('User-Agent', 'MediaScaler/${info.version}');
-        final response = await request.close();
-        if (response.statusCode == 404) {
-          throw const UpdateException('公開済みReleaseがないか、更新先を閲覧できません。');
-        }
-        if (response.statusCode == 403 || response.statusCode == 429) {
-          throw const UpdateException('GitHubのアクセス制限中です。時間をおいて再確認してください。');
-        }
-        if (response.statusCode != 200) {
-          throw UpdateException(
-            '更新情報を取得できませんでした（HTTP ${response.statusCode}）。',
-          );
-        }
-        final bytes = <int>[];
-        await for (final chunk in response) {
-          bytes.addAll(chunk);
-          if (bytes.length > 2 * 1024 * 1024) {
-            throw const UpdateException('更新情報のサイズが大きすぎます。');
-          }
-        }
-        return jsonDecode(utf8.decode(bytes));
-      })().timeout(timeout);
+          userAgent: 'MediaScaler/${info.version}',
+          signalRateLimit: true,
+        ).timeout(timeout);
+      } on _GitHubRateLimitException {
+        // This CDN-backed release asset does not consume the unauthenticated
+        // GitHub API quota, so updates keep working after HTTP 403/429.
+        data = await _getJson(
+          client,
+          Uri.https(
+            'github.com',
+            '/$repo/releases/latest/download/latest.json',
+          ),
+          userAgent: 'MediaScaler/${info.version}',
+          followRedirects: true,
+        ).timeout(timeout);
+      }
       if (data is! Map<String, dynamic>) throw const FormatException();
       return parseRelease(
         data,
@@ -114,6 +109,41 @@ class UpdateService {
     } finally {
       client.close(force: true);
     }
+  }
+
+  static Future<dynamic> _getJson(
+    HttpClient client,
+    Uri uri, {
+    required String userAgent,
+    bool followRedirects = false,
+    bool signalRateLimit = false,
+  }) async {
+    final request = await client.getUrl(uri);
+    request.followRedirects = followRedirects;
+    request.headers.set('Accept', 'application/vnd.github+json');
+    request.headers.set('User-Agent', userAgent);
+    final response = await request.close();
+    if (signalRateLimit &&
+        (response.statusCode == 403 || response.statusCode == 429)) {
+      throw _GitHubRateLimitException();
+    }
+    if (response.statusCode == 404) {
+      throw const UpdateException('公開済みReleaseがないか、更新先を閲覧できません。');
+    }
+    if (response.statusCode == 403 || response.statusCode == 429) {
+      throw const UpdateException('GitHubのアクセス制限中です。時間をおいて再確認してください。');
+    }
+    if (response.statusCode != 200) {
+      throw UpdateException('更新情報を取得できませんでした（HTTP ${response.statusCode}）。');
+    }
+    final bytes = <int>[];
+    await for (final chunk in response) {
+      bytes.addAll(chunk);
+      if (bytes.length > 2 * 1024 * 1024) {
+        throw const UpdateException('更新情報のサイズが大きすぎます。');
+      }
+    }
+    return jsonDecode(utf8.decode(bytes));
   }
 
   static AppUpdate? parseRelease(

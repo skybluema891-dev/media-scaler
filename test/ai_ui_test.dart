@@ -21,14 +21,14 @@ void main() {
     await tester.pumpWidget(
       MediaScalerApp(
         settings: settings,
-        version: '1.2.3',
+        version: '1.2.4',
         checkToolsOnStart: false,
       ),
     );
     await tester.pump();
     expect(
       tester.widget<MaterialApp>(find.byType(MaterialApp)).title,
-      'メディア・スケーラー v1.2.3',
+      'メディア・スケーラー v1.2.4',
     );
     await tester.ensureVisible(find.text('変更OK（サイズを付ける）').first);
     await tester.tap(find.text('変更OK（サイズを付ける）').first);
