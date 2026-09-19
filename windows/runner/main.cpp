@@ -33,7 +33,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Read Flutter's build version, omitting only the optional build metadata.
   const std::string version = std::string(FLUTTER_VERSION).substr(
       0, std::string(FLUTTER_VERSION).find('+'));
-  title += L" v" + std::wstring(version.begin(), version.end());
+  title += L" " + std::wstring(version.begin(), version.end());
   if (!window.Create(
           title.c_str(),
           origin, size)) {

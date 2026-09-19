@@ -28,7 +28,7 @@ class MediaScalerApp extends StatelessWidget {
       animation: settings,
       builder: (context, _) => MaterialApp(
         debugShowCheckedModeBanner: false,
-        title: 'メディア・スケーラー${version.isEmpty ? '' : ' v$version'}',
+        title: 'メディア・スケーラー${version.isEmpty ? '' : ' $version'}',
         themeMode: settings.themeMode,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff3659c9)),

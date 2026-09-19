@@ -28,8 +28,6 @@ class AppUpdate {
   final String assetName;
 }
 
-class _GitHubRateLimitException implements Exception {}
-
 class UpdateService {
   static const timeout = Duration(seconds: 12);
   static bool validRepository(String value) =>
@@ -72,15 +70,9 @@ class UpdateService {
     try {
       dynamic data;
       try {
-        data = await _getJson(
-          client,
-          Uri.https('api.github.com', '/repos/$repo/releases/latest'),
-          userAgent: 'MediaScaler/${info.version}',
-          signalRateLimit: true,
-        ).timeout(timeout);
-      } on _GitHubRateLimitException {
-        // This CDN-backed release asset does not consume the unauthenticated
-        // GitHub API quota, so updates keep working after HTTP 403/429.
+        // Prefer the release-hosted manifest. It is not subject to the
+        // unauthenticated GitHub API quota and works on networks that filter
+        // api.github.com while still allowing release downloads.
         data = await _getJson(
           client,
           Uri.https(
@@ -89,6 +81,14 @@ class UpdateService {
           ),
           userAgent: 'MediaScaler/${info.version}',
           followRedirects: true,
+        ).timeout(timeout);
+      } catch (_) {
+        // Older releases may not contain latest.json. The API remains a
+        // compatible fallback for those releases and transient CDN failures.
+        data = await _getJson(
+          client,
+          Uri.https('api.github.com', '/repos/$repo/releases/latest'),
+          userAgent: 'MediaScaler/${info.version}',
         ).timeout(timeout);
       }
       if (data is! Map<String, dynamic>) throw const FormatException();
@@ -116,17 +116,12 @@ class UpdateService {
     Uri uri, {
     required String userAgent,
     bool followRedirects = false,
-    bool signalRateLimit = false,
   }) async {
     final request = await client.getUrl(uri);
     request.followRedirects = followRedirects;
     request.headers.set('Accept', 'application/vnd.github+json');
     request.headers.set('User-Agent', userAgent);
     final response = await request.close();
-    if (signalRateLimit &&
-        (response.statusCode == 403 || response.statusCode == 429)) {
-      throw _GitHubRateLimitException();
-    }
     if (response.statusCode == 404) {
       throw const UpdateException('公開済みReleaseがないか、更新先を閲覧できません。');
     }
