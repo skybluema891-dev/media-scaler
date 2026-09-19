@@ -1,0 +1,41 @@
+FFmpeg導入ガイド
+=================
+
+このアプリの画像・動画変換には、FFmpegとFFprobeが必要です。
+Windows版にはBtbN FFmpeg BuildsのGPL静的ビルドを同梱済みです。
+通常は追加インストールやPATH設定は必要ありません。
+
+同梱元：BtbN/FFmpeg-Builds（GitHub Releases）
+構成：FFmpeg 8.1系列・Windows x86_64・GPL static
+ライセンス全文：tools\ffmpeg\windows\FFMPEG-LICENSE.txt
+
+【同梱ファイルが削除された場合】
+方法A：FFmpegをPCへインストールし、ffmpeg / ffprobeへPATHを通します。
+方法B：次の場所へバイナリを置きます。
+
+Windows:
+  tools\ffmpeg\windows\ffmpeg.exe
+  tools\ffmpeg\windows\ffprobe.exe
+
+macOS:
+  tools/ffmpeg/macos/ffmpeg
+  tools/ffmpeg/macos/ffprobe
+
+macOSでは実行権限を付けてください。
+  chmod +x tools/ffmpeg/macos/ffmpeg tools/ffmpeg/macos/ffprobe
+
+【Windows版をビルドする場合】
+ビルド時にCMakeが tools\ffmpeg\windows のFFmpeg、FFprobe、ライセンスを
+実行ファイルの隣へ自動コピーします。
+
+【macOS版】
+macOS用バイナリはWindows用とは別です。macOSホスト上でLGPL版を用意し、
+tools/ffmpeg/macos/ へ配置してください。
+
+同梱版にはlibx264／libx265が含まれるためGPLライセンスです。
+再配布時はFFMPEG-LICENSE.txtを削除せず、対応するソースコードの入手方法として
+BtbN/FFmpeg-BuildsおよびFFmpeg公式プロジェクトへの案内を保持してください。
+アプリ本体とは標準入出力を介する別プロセスとして動作しますが、商用配布などでは
+配布形態がGPL条件を満たすか専門家へ確認してください。
+
+アプリは同梱バイナリを最優先し、見つからない場合はPATH上のFFmpegを探します。

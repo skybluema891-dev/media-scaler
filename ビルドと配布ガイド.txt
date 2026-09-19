@@ -1,0 +1,48 @@
+メディア・スケーラー　ビルドと配布
+==================================
+
+【普段の起動】
+直下の「00_メディア・スケーラー.exe」を起動します。
+本体と付属ファイルはapp/1.1.2内にあります。EXEだけを移動しないでください。
+「01_インストール.exe」は現在のユーザー用にインストールします。
+Windows版は未署名のため、OSの警告が出る場合があります。
+警告やウイルス検出が出た場合は保護を解除せず内容を確認してください。
+
+【Windowsで作り直す】
+必要：Flutter 3.47.3、Visual Studio C++デスクトップ開発、
+Python 3.13、Inno Setup 6または7。
+プロジェクト内で次を順番に実行します。
+  python -m pip install -r ai_worker/requirements.txt
+  python scripts/prepare_tools.py
+  python scripts/build_worker.py
+  powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1
+モデルとFFmpegの準備には初回通信が必要です。
+ビルドは未使用のR～Uドライブを一時割り当てし、日本語パス問題を回避します。
+作業データはこのプロジェクト内に置かれ、一時割り当ては終了時に解除します。
+完成品はapp/1.1.2、dist、および直下の00/01から始まるEXEです。
+
+【macOS】
+Mac上でFlutter、Python 3.13、Homebrewを用意します。
+  brew install ffmpeg dylibbundler
+  python3 -m pip install -r ai_worker/requirements.txt
+  python3 scripts/prepare_tools.py
+  python3 scripts/build_worker.py
+  bash scripts/build_macos.sh 1.1.2
+ARMとIntelはそれぞれの環境で作ります。このWindows PCでは未検証です。
+標準はアドホック署名です。一般公開にはDeveloper ID署名と公証が必要です。
+MACOS_SIGN_IDENTITYとNOTARY_PROFILEを設定すると署名・公証に利用します。
+資格情報の登録は利用者がMacのキーチェーンで行ってください。
+
+【GitHub Actions】
+.github/workflows/release.ymlを同じ構成のGitHubリポジトリで使用します。
+手動実行はビルド成果物を保存します。
+pubspec.yamlと同じバージョンのvタグでは下書きリリースも作成します。
+Windows、Mac ARM64、Mac Intelの全ジョブ成功が必要です。
+署名、実機テスト、ライセンス確認後に人が公開してください。
+この作業ではGitHubへアップロード・タグ作成・公開を行っていません。
+
+【再配布】
+THIRD_PARTY_NOTICES.txtと同梱ライセンスを保持してください。
+特にGPL版FFmpegについて、一般的な上流URLの記載だけでは十分とは限りません。
+配布したバイナリに対応するソースとビルド情報等を確保し、
+適用ライセンスの条件を満たしてから外部配布してください。

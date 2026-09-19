@@ -1,0 +1,138 @@
+name: Build desktop releases
+on:
+  push:
+    branches: ['**']
+    tags: ['v[0-9]*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: desktop-release-${{ github.repository }}-${{ github.event_name == 'pull_request' && github.ref || 'publish' }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m unittest discover -s scripts -p 'test_release_*.py'
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/release_automation.py plan
+  checks:
+    needs: prepare
+    if: needs.prepare.outputs.publish != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.3'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: dart analyze lib test
+      - run: flutter test
+  windows:
+    needs: prepare
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.3'
+          channel: stable
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Prepare offline engines
+        run: |
+          python -m pip install -r ai_worker/requirements.txt
+          python scripts/prepare_tools.py
+          python scripts/build_worker.py
+      - name: Install packaging compiler
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+      - name: Build and package
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          UPDATE_REPOSITORY: ${{ github.repository }}
+        run: |
+          ./scripts/build_windows.ps1 -Version $env:RELEASE_VERSION
+      - name: Engine integration tests
+        run: python -m unittest discover -s ai_worker -p "test_*.py"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/*.exe
+          if-no-files-found: error
+  macos:
+    needs: prepare
+    if: needs.prepare.outputs.publish == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.3'
+          channel: stable
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Prepare offline engines
+        run: |
+          brew install ffmpeg dylibbundler
+          python -m pip install -r ai_worker/requirements.txt
+          python scripts/prepare_tools.py
+          python scripts/build_worker.py
+      - name: Build app, ZIP and DMG
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          UPDATE_REPOSITORY: ${{ github.repository }}
+        run: |
+          bash scripts/build_macos.sh "$RELEASE_VERSION"
+      - name: Engine integration tests
+        run: python -m unittest discover -s ai_worker -p "test_*.py"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}
+          path: |
+            dist/*.zip
+            dist/*.dmg
+          if-no-files-found: error
+  release:
+    if: needs.prepare.outputs.publish == 'true'
+    needs: [prepare, windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publish complete release and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/release_automation.py publish

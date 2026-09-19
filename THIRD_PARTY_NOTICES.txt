@@ -1,0 +1,37 @@
+第三者ソフトウェアに関する表示
+==============================
+
+FFmpeg / FFprobe
+---------------
+本プロジェクトのWindowsビルドには、FFmpegおよびFFprobeの実行ファイルを
+アプリ本体とは別のプロセスとして同梱しています。
+
+提供元：BtbN/FFmpeg-Builds
+https://github.com/BtbN/FFmpeg-Builds
+
+上流プロジェクト：FFmpeg
+https://ffmpeg.org/
+https://github.com/FFmpeg/FFmpeg
+
+同梱ビルド：FFmpeg 8.1系列 / Windows x86_64 / GPL static
+同梱ライセンス：tools/ffmpeg/windows/FFMPEG-LICENSE.txt
+
+このビルドにはGPLライセンスのコンポーネント（libx264、libx265など）が
+含まれます。再配布時にはライセンス全文を保持してください。
+一般的な上流URLの記載だけで再配布条件を満たすとは限りません。
+配布するバイナリに対応するソース・ビルド情報等の提供条件を確認してください。
+
+AIエンジン・モデル
+------------------
+Real-ESRGAN / realesrgan-ncnn-vulkan:
+https://github.com/xinntao/Real-ESRGAN
+https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan
+ncnn: https://github.com/Tencent/ncnn
+公式v0.2.5.0配布のモデル・実行ファイルを使用します。
+ライセンスはtools/licenses（配布版ではlicenses）に同梱します。
+
+Windows AIランタイムはPython Software Foundationの公式埋め込みPythonです。
+ncnn、NumPy、Pillowを使用します。各ライセンスはlicenses/python-packagesと
+Python内のLICENSE.txt等を参照してください。
+macOSでは同じ処理をPyInstallerでパッケージ化します。
+モデル・各依存ライブラリの表示を取り除かず配布してください。
