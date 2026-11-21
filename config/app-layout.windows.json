@@ -3,7 +3,7 @@
   "layout": "per-app",
   "id": "media-scaler",
   "name": "Media Scaler",
-  "data_mode": "os",
+  "data_mode": "portable",
   "areas": {
     "development": "開発環境-(ソースコード・テスト・検証ログ )",
     "release": "完成アプリ-(正式ビルド・配布ファイル)",

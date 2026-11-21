@@ -42,13 +42,17 @@ def setup(manager, expected):
         raise ValueError("既存の Media Scaler Git リポジトリを確認してください。")
 
     manifest = APP_ROOT / manager.MANIFEST
-    legacy = expected | {"areas": SHORT_AREAS}
+    legacy = [
+        expected | {"data_mode": "os"},
+        expected | {"areas": SHORT_AREAS},
+        expected | {"areas": SHORT_AREAS, "data_mode": "os"},
+    ]
     previous = None
     if manifest.exists() or manifest.is_symlink():
         if manifest.is_symlink() or getattr(manifest.lstat(), "st_file_attributes", 0) & 0x400:
             raise ValueError("対応表はローカルの通常ファイルにしてください。")
         previous = manifest.read_text(encoding="utf-8")
-        if json.loads(previous) not in (expected, legacy):
+        if json.loads(previous) not in [expected, *legacy]:
             raise ValueError("未知の既存対応表を保護しました。")
 
     for role, name in expected["areas"].items():
@@ -62,8 +66,11 @@ def setup(manager, expected):
     for local_dir in ("logs", ".verification"):
         manager.safe_directory(PROJECT / local_dir, create=True)
 
-    if previous is not None and json.loads(previous) == legacy:
-        backup = PROJECT / "logs" / "app-layout.before-windows2.json"
+    if previous is not None and json.loads(previous) != expected:
+        backup_name = ("app-layout.before-local-data.json"
+                       if json.loads(previous)["areas"] == expected["areas"]
+                       else "app-layout.before-windows2.json")
+        backup = PROJECT / "logs" / backup_name
         if not backup.exists():
             manager.write_new(backup, previous)
         elif backup.is_symlink() or backup.read_text(encoding="utf-8") != previous:
@@ -108,6 +115,17 @@ def main():
     os.chdir(PROJECT)
     if action == "setup":
         sys.argv[1:] = ["context"]
+    elif action == "route" and len(arguments) == 3 and arguments[1] in {"source", "test"}:
+        directory = {"source": "lib", "test": "test"}[arguments[1]]
+        name = arguments[2]
+        relative = Path(name)
+        if (not relative.parts or relative.is_absolute() or relative.drive or
+                ".." in relative.parts or any(c in name for c in '\\:*?<>|"')):
+            raise ValueError("ファイル名は保存先内の相対パスにしてください")
+        destination = PROJECT / directory / relative
+        manager.safe_directory(destination.parent)
+        print(destination)
+        return 0
     return manager.main()
 
 

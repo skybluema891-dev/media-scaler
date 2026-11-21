@@ -29,8 +29,28 @@ $drive = @('R:','S:','T:','U:') | Where-Object { -not (Test-Path ($_ + '\')) } |
 if (-not $drive) { throw 'No free build drive' }
 $succeeded = $false
 $mapped = $false
+$sdkDrive = $null
+$pluginJunctions = @()
 $previousTemps = $null
+$previousPubCache = $env:PUB_CACHE
+$python = Join-Path $project 'tools\sdk\python\python.exe'
+if (-not (Test-Path -LiteralPath $python)) { $python = 'python' }
+$flutter = 'flutter'
+$dart = 'dart'
 try {
+    $sdk = Join-Path $project 'tools\sdk'
+    if (Test-Path -LiteralPath (Join-Path $sdk 'flutter\bin\flutter.bat')) {
+        # Flutter's Windows launchers require a path without parentheses.
+        foreach ($letter in @('V:', 'W:', 'X:', 'Y:')) {
+            if (Test-Path ($letter + '\')) { continue }
+            subst $letter $sdk
+            if (-not $LASTEXITCODE) { $sdkDrive = $letter; break }
+        }
+        if (-not $sdkDrive) { throw 'No free Flutter SDK drive' }
+        $flutter = Join-Path ($sdkDrive + '\') 'flutter\bin\flutter.bat'
+        $dart = Join-Path ($sdkDrive + '\') 'flutter\bin\dart.bat'
+        $env:PUB_CACHE = Join-Path ($sdkDrive + '\') 'pub-cache'
+    }
     foreach ($folder in @('lib','config','windows','macos','test','ai_worker','packaging','scripts')) {
         if (Test-Path (Join-Path $project $folder)) { Copy-Item (Join-Path $project $folder) $source -Recurse }
     }
@@ -54,19 +74,45 @@ try {
     $env:TMP = $env:TEMP = $env:TMPDIR = $shortTemp
     Push-Location ($drive + '\src')
     try {
-        flutter pub get
-        if ($LASTEXITCODE) { throw 'pub get failed' }
-        dart analyze lib test
+        $pubOutput = & $flutter pub get 2>&1
+        $pubExit = $LASTEXITCODE
+        $pubOutput | Write-Output
+        if ($pubExit -and ($pubOutput -match 'Building with plugins requires symlink support')) {
+            # Flutter has already resolved packages and generated the plugin list.
+            # Use ordinary directory junctions in this disposable stage.
+            $metadata = Get-Content -LiteralPath '.flutter-plugins-dependencies' -Raw | ConvertFrom-Json
+            $links = New-Item -ItemType Directory -Path 'windows/flutter/ephemeral/.plugin_symlinks' -Force
+            foreach ($plugin in $metadata.plugins.windows) {
+                if ($plugin.name -notmatch '^[a-z][a-z0-9_]*$' -or
+                    -not [IO.Path]::IsPathFullyQualified($plugin.path) -or
+                    -not (Test-Path -LiteralPath $plugin.path -PathType Container)) {
+                    throw 'Invalid path in Flutter plugin metadata'
+                }
+                $link = Join-Path $links.FullName $plugin.name
+                if (-not (Test-Path -LiteralPath $link)) {
+                    New-Item -ItemType Junction -Path $link -Target ([IO.Path]::GetFullPath($plugin.path)) | Out-Null
+                    $pluginJunctions += $link
+                }
+            }
+            & $flutter pub get
+            $pubExit = $LASTEXITCODE
+        }
+        if ($pubExit) { throw 'pub get failed' }
+        & $dart analyze lib test
         if ($LASTEXITCODE) { throw 'analysis failed' }
-        flutter test --no-pub
+        & $flutter test --no-pub
         if ($LASTEXITCODE) { throw 'test failed' }
-        python -B -m unittest discover -s scripts -p 'test_release_*.py'
+        & $python -B -m unittest discover -s scripts -p 'test_release_*.py'
         if ($LASTEXITCODE) { throw 'release automation tests failed' }
         if ($CheckOnly) {
             $succeeded = $true
             return
         }
-        flutter build windows --release --no-pub --build-name=$Version "--dart-define=UPDATE_REPOSITORY=$env:UPDATE_REPOSITORY" --dart-define=UPDATE_TARGET=windows-x64 -v *> (Join-Path $project 'build\windows-release.log')
+        $repository = $env:UPDATE_REPOSITORY
+        if (-not $repository -and $env:COMMON_APP_DEV -eq $project) {
+            $repository = 'skybluema891-dev/media-scaler'
+        }
+        & $flutter build windows --release --no-pub --build-name=$Version "--dart-define=UPDATE_REPOSITORY=$repository" --dart-define=UPDATE_TARGET=windows-x64 -v *> (Join-Path $project 'build\windows-release.log')
         if ($LASTEXITCODE) { throw 'Windows build failed' }
         New-Item -ItemType Directory -Force $output | Out-Null
         Copy-Item '.\build\windows\x64\runner\Release\*' $output -Recurse -Force
@@ -89,14 +135,28 @@ try {
     if (-not $Iscc) { throw 'Inno Setup compiler is required for installer' }
     & $Iscc /Q "/DAppVersion=$Version" "/DSourceDir=$output" "/DOutputDir=$dist" (Join-Path $project 'packaging\windows\installer.iss')
     if ($LASTEXITCODE) { throw 'Installer build failed' }
+    if ($env:COMMON_APP_DEV -eq $project -and $env:COMMON_APP_DATA_MODE -eq 'portable') {
+        @{
+            id = $env:COMMON_APP_ID
+            data_mode = 'portable'
+            data_relative = [IO.Path]::GetRelativePath($output, $env:COMMON_APP_DATA)
+        } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'runtime.json') -Encoding utf8
+    }
     $succeeded = $true
 } finally {
+    foreach ($link in $pluginJunctions) {
+        if ((Get-Item -LiteralPath $link -ErrorAction SilentlyContinue).LinkType -eq 'Junction') {
+            [IO.Directory]::Delete($link)
+        }
+    }
     if ($previousTemps) {
         foreach ($key in $previousTemps.Keys) {
             [Environment]::SetEnvironmentVariable($key, $previousTemps[$key], 'Process')
         }
     }
     if ($mapped) { subst $drive /D }
+    $env:PUB_CACHE = $previousPubCache
+    if ($sdkDrive) { subst $sdkDrive /D }
     $resolved = [IO.Path]::GetFullPath($stage)
     if ($succeeded -and $resolved.StartsWith([IO.Path]::GetFullPath((Join-Path $project 'build')) + [IO.Path]::DirectorySeparatorChar) -and
         (Split-Path $resolved -Leaf).StartsWith('release-stage-')) {
