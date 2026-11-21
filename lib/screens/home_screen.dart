@@ -354,7 +354,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('メディア・スケーラー'),
+            Text('Media Scaler'),
             Text(
               '画像・動画をかんたん拡大／縮小',
               style: TextStyle(fontSize: 12, fontWeight: FontWeight.normal),

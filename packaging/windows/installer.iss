@@ -9,11 +9,12 @@
 #endif
 [Setup]
 AppId={{D95D1FD9-8B40-46CE-AF11-32C6599A8C42}
-AppName=メディア・スケーラー
+AppName=Media Scaler
 AppVersion={#AppVersion}
 AppPublisher=Media Scaler Project
 DefaultDirName={localappdata}\Programs\MediaScaler
-DefaultGroupName=メディア・スケーラー
+DefaultGroupName=Media Scaler
+UsePreviousGroup=no
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -23,7 +24,9 @@ Compression=lzma2/fast
 SolidCompression=yes
 WizardStyle=modern
 SetupIconFile=..\..\windows\runner\resources\app_icon.ico
-UninstallDisplayIcon={app}\media_scaler.exe
+UninstallDisplayIcon={app}\Media Scaler.exe
+UninstallDisplayName=Media Scaler
+VersionInfoProductName=Media Scaler
 CloseApplications=yes
 RestartApplications=no
 [Languages]
@@ -33,7 +36,12 @@ Name: desktopicon; Description: "デスクトップにショートカットを�
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
-Name: "{group}\メディア・スケーラー"; Filename: "{app}\media_scaler.exe"
-Name: "{autodesktop}\メディア・スケーラー"; Filename: "{app}\media_scaler.exe"; Tasks: desktopicon
+Name: "{group}\Media Scaler"; Filename: "{app}\Media Scaler.exe"
+Name: "{autodesktop}\Media Scaler"; Filename: "{app}\Media Scaler.exe"; Tasks: desktopicon
+[InstallDelete]
+Type: files; Name: "{app}\media_scaler.exe"
+Type: files; Name: "{autoprograms}\メディア・スケーラー\メディア・スケーラー.lnk"
+Type: dirifempty; Name: "{autoprograms}\メディア・スケーラー"
+Type: files; Name: "{autodesktop}\メディア・スケーラー.lnk"
 [Run]
-Filename: "{app}\media_scaler.exe"; Description: "メディア・スケーラーを起動"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Media Scaler.exe"; Description: "Media Scaler を起動"; Flags: nowait postinstall skipifsilent

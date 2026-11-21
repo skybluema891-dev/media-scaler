@@ -1,4 +1,4 @@
-# メディア・スケーラー
+# Media Scaler
 
 Windows / macOS 共通のFlutterソースで動く、画像・動画のアップスケール／ダウンスケールアプリです。バージョン1.2.5ではWindowsの更新検出を安定化し、タイトルバーへ実行中のバージョンを表示します。
 
@@ -20,9 +20,9 @@ AI高画質化（Real-ESRGAN）、オフラインモデル、画像比較プレ�
 
 ## Windowsで起動する
 
-プロジェクト直下の `00_メディア・スケーラー.exe` をダブルクリックしてください。
-このファイルは必要なDLLとFFmpegが入ったRelease版を自動で起動します。
-`app` フォルダは移動・削除しないでください。インストールする場合は直下の `01_インストール.exe` を使用してください。
+スタートメニューの「Media Scaler」を開いてください。展開済みのアプリは、同梱ファイルと同じフォルダにある `Media Scaler.exe` から起動できます。
+
+Windows では旧版と同じインストール ID と `%APPDATA%\com.example\media_scaler` を使用し、設定とログを引き継ぎます。
 
 ## 開発環境での起動
 
@@ -40,7 +40,7 @@ macOSでは `flutter run -d macos` を使用します。
 ## ビルド
 
 ```powershell
-flutter build windows
+pwsh -File scripts/build_windows.ps1
 ```
 
 ```bash
@@ -49,4 +49,4 @@ flutter build macos
 
 WindowsビルドではGPL版FFmpegが実行ファイルの隣へ自動コピーされます。再配布時は同梱した `FFMPEG-LICENSE.txt` を保持し、`FFmpeg導入ガイド.txt` の注意事項を確認してください。
 
-詳しい操作方法は `パラメーター設定ガイド.txt`、今回の実装範囲と制限は `PHASE_3_4_REPORT.txt`、配布用ビルドは `ビルドと配布ガイド.txt` を参照してください。
+詳しい操作方法は `パラメーター設定ガイド.txt`、配布用ビルドは `ビルドと配布ガイド.txt` を参照してください。

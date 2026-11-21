@@ -60,6 +60,9 @@ app.*.map.json
 /*.exe
 __pycache__/
 /artifacts/
+/logs/
+/.verification/
+/旧開発環境/
 /tools/licenses/python-packages/
 *.p12
 *.p8

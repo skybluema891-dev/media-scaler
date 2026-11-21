@@ -8,7 +8,7 @@ class MainFlutterWindow: NSWindow {
     DispatchQueue.main.async { [weak self] in
       if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
          !version.isEmpty {
-        self?.title = "メディア・スケーラー v\(version)"
+        self?.title = "Media Scaler \(version)"
       }
     }
   }

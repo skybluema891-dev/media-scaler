@@ -63,7 +63,7 @@ class _UpdateButtonState extends State<UpdateButton> {
       final action = await showDialog<String>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('新しいバージョンがあります'),
+          title: const Text('Media Scaler の新しいバージョンがあります'),
           content: SizedBox(
             width: 420,
             child: SingleChildScrollView(

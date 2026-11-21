@@ -28,8 +28,9 @@ void main() {
     await tester.pump();
     expect(
       tester.widget<MaterialApp>(find.byType(MaterialApp)).title,
-      'メディア・スケーラー 1.2.5',
+      'Media Scaler 1.2.5',
     );
+    expect(find.text('Media Scaler'), findsOneWidget);
     await tester.ensureVisible(find.text('変更OK（サイズを付ける）').first);
     await tester.tap(find.text('変更OK（サイズを付ける）').first);
     await tester.pumpAndSettle();

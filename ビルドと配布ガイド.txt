@@ -1,10 +1,10 @@
-メディア・スケーラー　ビルドと配布
+Media Scaler　ビルドと配布
 ==================================
 
 【普段の起動】
-直下の「00_メディア・スケーラー.exe」を起動します。
-本体と付属ファイルはapp/1.1.2内にあります。EXEだけを移動しないでください。
-「01_インストール.exe」は現在のユーザー用にインストールします。
+インストール版はスタートメニューの「Media Scaler」を起動します。
+展開済みの版は同梱フォルダごと保管し、「Media Scaler.exe」を起動します。
+インストーラーは現在のユーザー用に導入し、旧版の設定を引き継ぎます。
 Windows版は未署名のため、OSの警告が出る場合があります。
 警告やウイルス検出が出た場合は保護を解除せず内容を確認してください。
 
@@ -15,11 +15,15 @@ Python 3.13、Inno Setup 6または7。
   python -m pip install -r ai_worker/requirements.txt
   python scripts/prepare_tools.py
   python scripts/build_worker.py
-  powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1
+  pwsh -File scripts/build_windows.ps1
 モデルとFFmpegの準備には初回通信が必要です。
 ビルドは未使用のR～Uドライブを一時割り当てし、日本語パス問題を回避します。
 作業データはこのプロジェクト内に置かれ、一時割り当ては終了時に解除します。
-完成品はapp/1.1.2、dist、および直下の00/01から始まるEXEです。
+スクリプトの既定出力は app/<版> と dist です。
+Windows 1の管理構成では共通managerの build を使い、
+build/candidate で動作を検証してから共通managerの run で
+scripts/promote_local_windows.ps1 -Version <版> を実行します。
+「完成アプリ/Windows-<版>」に本体と Media Scaler Setup.exe が配置されます。
 
 【macOS】
 Mac上でFlutter、Python 3.13、Homebrewを用意します。
@@ -27,7 +31,7 @@ Mac上でFlutter、Python 3.13、Homebrewを用意します。
   python3 -m pip install -r ai_worker/requirements.txt
   python3 scripts/prepare_tools.py
   python3 scripts/build_worker.py
-  bash scripts/build_macos.sh 1.1.2
+  bash scripts/build_macos.sh
 ARMとIntelはそれぞれの環境で作ります。このWindows PCでは未検証です。
 標準はアドホック署名です。一般公開にはDeveloper ID署名と公証が必要です。
 MACOS_SIGN_IDENTITYとNOTARY_PROFILEを設定すると署名・公証に利用します。
@@ -35,11 +39,10 @@ MACOS_SIGN_IDENTITYとNOTARY_PROFILEを設定すると署名・公証に利用�
 
 【GitHub Actions】
 .github/workflows/release.ymlを同じ構成のGitHubリポジトリで使用します。
-手動実行はビルド成果物を保存します。
-pubspec.yamlと同じバージョンのvタグでは下書きリリースも作成します。
-Windows、Mac ARM64、Mac Intelの全ジョブ成功が必要です。
-署名、実機テスト、ライセンス確認後に人が公開してください。
-この作業ではGitHubへアップロード・タグ作成・公開を行っていません。
+mainでのバージョン更新や、pubspec.yamlと同じバージョンのvタグで配布が走ります。
+Windows、Mac ARM64、Mac Intelの成果物を検証し、全て揃った場合に公開されます。
+macOSの署名・公証要件は docs/macOS正式署名と公証.md を参照してください。
+更新確認との互換性のため、公開アセット名は MediaScaler-<版>-windows-setup.exe の形式を維持します。
 
 【再配布】
 THIRD_PARTY_NOTICES.txtと同梱ライセンスを保持してください。

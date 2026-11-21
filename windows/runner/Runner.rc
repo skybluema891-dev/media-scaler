@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "media_scaler" "\0"
+            VALUE "FileDescription", "Media Scaler" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "media_scaler" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "media_scaler.exe" "\0"
-            VALUE "ProductName", "media_scaler" "\0"
+            VALUE "OriginalFilename", "Media Scaler.exe" "\0"
+            VALUE "ProductName", "Media Scaler" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

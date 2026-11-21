@@ -58,7 +58,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('新しいバージョンがあります'), findsOneWidget);
+    expect(find.text('Media Scaler の新しいバージョンがあります'), findsOneWidget);
     expect(find.text('1.2.0 → 1.3.0'), findsOneWidget);
     await tester.tap(find.text('ダウンロード'));
     await tester.pumpAndSettle();
@@ -77,10 +77,10 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pumpWidget(screen());
     await tester.pumpAndSettle();
-    expect(find.text('新しいバージョンがあります'), findsNothing);
+    expect(find.text('Media Scaler の新しいバージョンがあります'), findsNothing);
     await tester.tap(find.byTooltip('更新を確認'));
     await tester.pumpAndSettle();
-    expect(find.text('新しいバージョンがあります'), findsOneWidget);
+    expect(find.text('Media Scaler の新しいバージョンがあります'), findsOneWidget);
   });
   testWidgets('offline startup stays quiet; manual check explains failure', (
     tester,

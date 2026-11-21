@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "test": {
+    "command": ["pwsh", "-NoProfile", "-File", "scripts/build_windows.ps1", "-CheckOnly"],
+    "outputs": [],
+    "owned_tree": true
+  },
+  "build": {
+    "command": ["pwsh", "-NoProfile", "-File", "scripts/build_windows.ps1", "-Version:{version}", "-OutputRoot", "{development}/build/candidate"],
+    "outputs": [],
+    "owned_tree": true
+  }
+}
