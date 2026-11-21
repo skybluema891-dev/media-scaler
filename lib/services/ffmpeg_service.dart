@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/media_item.dart';
@@ -15,6 +16,8 @@ typedef ProgressCallback = void Function(
   Duration elapsed,
   Duration? remaining,
 );
+
+const _windowsHeapCorruption = 0xc0000374;
 
 class FfmpegMissingException implements Exception {
   const FfmpegMissingException();
@@ -189,12 +192,43 @@ class FfmpegService {
     final cpuEncoder = item.kind == MediaKind.video
         ? await _selectCpuEncoder(settings.videoCodec)
         : null;
-    final args = _arguments(item, outputPath, settings, filter, encoder);
+    Future<int> runEncoder(String? selectedEncoder) async {
+      if (_cancelRequested) throw const ConversionException('キャンセルしました。');
+      final args = _arguments(
+        item,
+        outputPath,
+        settings,
+        filter,
+        selectedEncoder,
+      );
+      final code = await _run(args, duration, stopwatch, onProgress);
+      if (_cancelRequested ||
+          !Platform.isWindows ||
+          selectedEncoder != 'libx265' ||
+          (code & 0xffffffff) != _windowsHeapCorruption) {
+        return code;
+      }
+      await AppLogger.write('libx265が異常終了。並列化とSIMDを抑えて再試行します。');
+      await _removePartial(outputPath);
+      if (_cancelRequested) throw const ConversionException('キャンセルしました。');
+      return _run(
+        [
+          ...args.take(args.length - 1),
+          '-x265-params',
+          'pools=none:frame-threads=1:wpp=0:asm=0',
+          outputPath,
+        ],
+        duration,
+        stopwatch,
+        onProgress,
+      );
+    }
+
     try {
       if (encoder != null) {
         await AppLogger.write('使用エンコーダー: $encoder');
       }
-      final exitCode = await _run(args, duration, stopwatch, onProgress);
+      final exitCode = await runEncoder(encoder);
       if (_cancelRequested) {
         await _removePartial(outputPath);
         throw const ConversionException('キャンセルしました。');
@@ -202,19 +236,7 @@ class FfmpegService {
       if (exitCode != 0 && encoder != null && encoder != cpuEncoder) {
         await AppLogger.write('GPUエンコード失敗。CPUへ切替: $encoder');
         await _removePartial(outputPath);
-        final retryArgs = _arguments(
-          item,
-          outputPath,
-          settings,
-          filter,
-          cpuEncoder,
-        );
-        final retryCode = await _run(
-          retryArgs,
-          duration,
-          stopwatch,
-          onProgress,
-        );
+        final retryCode = await runEncoder(cpuEncoder);
         if (_cancelRequested) throw const ConversionException('キャンセルしました。');
         if (retryCode != 0) {
           throw const ConversionException('変換に失敗しました。詳細はログを確認してください。');
@@ -304,7 +326,7 @@ class FfmpegService {
         throw const ConversionException('選択した動画形式に対応するエンコーダーがありません。');
       }
       args.addAll(['-c:v', encoder]);
-      args.addAll(_videoQualityArgs(settings, encoder));
+      args.addAll(videoQualityArgs(settings, encoder));
       args.addAll(['-c:a', 'aac', '-b:a', '192k']);
       if (p.extension(output).toLowerCase() == '.mp4' ||
           p.extension(output).toLowerCase() == '.mov') {
@@ -419,7 +441,8 @@ class FfmpegService {
     return encoder;
   }
 
-  List<String> _videoQualityArgs(AppSettings settings, String encoder) {
+  @visibleForTesting
+  List<String> videoQualityArgs(AppSettings settings, String encoder) {
     final crf = switch (settings.videoQuality) {
       VideoQuality.compact => 28,
       VideoQuality.standard => 23,
@@ -453,6 +476,11 @@ class FfmpegService {
         '-qp_p',
         '$crf',
       ];
+    }
+    if (encoder == 'hevc_qsv') {
+      // Some Intel HEVC drivers stall with the faster presets. Let the
+      // driver select its default while retaining the requested quality.
+      return ['-global_quality', '$crf'];
     }
     if (encoder.contains('_qsv')) {
       final preset = switch (settings.normalQuality) {
