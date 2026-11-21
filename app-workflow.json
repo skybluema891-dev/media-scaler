@@ -8,6 +8,6 @@
   "build": {
     "command": ["pwsh", "-NoProfile", "-File", "scripts/build_windows.ps1", "-Version:{version}", "-OutputRoot", "{development}/build/candidate"],
     "outputs": [],
-    "owned_tree": true
+    "owned_tree": false
   }
 }

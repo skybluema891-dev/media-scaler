@@ -49,6 +49,7 @@ app.*.map.json
 .widget_preview/
 
 # Downloaded executables and generated distribution packages are rebuilt by CI.
+# The app management root and the two sibling areas are outside this repository.
 /tools/ai/
 /tools/downloads/
 /tools/inno/
@@ -66,5 +67,17 @@ __pycache__/
 /tools/licenses/python-packages/
 *.p12
 *.p8
+*.pfx
+*.key
+*.pem
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+/app-layout.json
 .env
 .env.*
+!.env.example

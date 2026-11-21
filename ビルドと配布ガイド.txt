@@ -20,10 +20,11 @@ Python 3.13、Inno Setup 6または7。
 ビルドは未使用のR～Uドライブを一時割り当てし、日本語パス問題を回避します。
 作業データはこのプロジェクト内に置かれ、一時割り当ては終了時に解除します。
 スクリプトの既定出力は app/<版> と dist です。
-Windows 1の管理構成では共通managerの build を使い、
-build/candidate で動作を検証してから共通managerの run で
+Windowsの3フォルダ構成では python -B scripts/manage_windows.py build --version <版> --defer を使います。
+build/candidate で動作を検証してから同じ入口の run で
 scripts/promote_local_windows.ps1 -Version <版> を実行します。
-「完成アプリ/Windows-<版>」に本体と Media Scaler Setup.exe が配置されます。
+「完成アプリ-(正式ビルド・配布ファイル)/Windows-<版>」に本体と
+Media Scaler Setup.exe が配置されます。初期化は docs/Windows2引き継ぎ.md を参照してください。
 
 【macOS】
 Mac上でFlutter、Python 3.13、Homebrewを用意します。

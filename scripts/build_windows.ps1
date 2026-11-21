@@ -29,6 +29,7 @@ $drive = @('R:','S:','T:','U:') | Where-Object { -not (Test-Path ($_ + '\')) } |
 if (-not $drive) { throw 'No free build drive' }
 $succeeded = $false
 $mapped = $false
+$previousTemps = $null
 try {
     foreach ($folder in @('lib','config','windows','macos','test','ai_worker','packaging','scripts')) {
         if (Test-Path (Join-Path $project $folder)) { Copy-Item (Join-Path $project $folder) $source -Recurse }
@@ -45,6 +46,12 @@ try {
     subst $drive $stage
     if ($LASTEXITCODE) { throw 'Build drive mapping failed' }
     $mapped = $true
+    # Native test runners and tools can hit MAX_PATH through the verification
+    # temp directory even when the source itself is on the short drive.
+    $previousTemps = @{ TMP = $env:TMP; TEMP = $env:TEMP; TMPDIR = $env:TMPDIR }
+    $shortTemp = Join-Path ($drive + '\') 'tmp'
+    New-Item -ItemType Directory -Path $shortTemp | Out-Null
+    $env:TMP = $env:TEMP = $env:TMPDIR = $shortTemp
     Push-Location ($drive + '\src')
     try {
         flutter pub get
@@ -84,6 +91,11 @@ try {
     if ($LASTEXITCODE) { throw 'Installer build failed' }
     $succeeded = $true
 } finally {
+    if ($previousTemps) {
+        foreach ($key in $previousTemps.Keys) {
+            [Environment]::SetEnvironmentVariable($key, $previousTemps[$key], 'Process')
+        }
+    }
     if ($mapped) { subst $drive /D }
     $resolved = [IO.Path]::GetFullPath($stage)
     if ($succeeded -and $resolved.StartsWith([IO.Path]::GetFullPath((Join-Path $project 'build')) + [IO.Path]::DirectorySeparatorChar) -and

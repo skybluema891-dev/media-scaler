@@ -24,7 +24,9 @@ AI高画質化（Real-ESRGAN）、オフラインモデル、画像比較プレ�
 
 Windows では旧版と同じインストール ID と `%APPDATA%\com.example\media_scaler` を使用し、設定とログを引き継ぎます。
 
-## 開発環境での起動
+## Windowsの開発と引き継ぎ
+
+今後の主開発PCはWindows 2です。3フォルダの作成、依存復元、ビルド、受け入れ確認は [Windows 2引き継ぎ手順](docs/Windows2引き継ぎ.md) を参照してください。
 
 1. Flutter SDKを用意します。
 2. Windows版にはFFmpegとFFprobeが同梱済みです。macOS版は `FFmpeg導入ガイド.txt` を参照してください。
