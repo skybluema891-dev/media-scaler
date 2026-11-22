@@ -12,14 +12,23 @@ from fractions import Fraction
 
 # The Windows embedded interpreter reads absolute paths from python313._pth.
 # Supply extended paths before loading packages with deeply nested .pyd files.
-if os.name == "nt" and sys.flags.isolated:
-    def extended_path(path):
-        if path.startswith(("\\\\?\\", "\\\\.\\")) or not os.path.isabs(path):
-            return path
-        if path.startswith("\\\\"):
-            return "\\\\?\\UNC\\" + path[2:]
-        return "\\\\?\\" + path
+def extended_path(path):
+    path = os.path.abspath(path)
+    if path.startswith(("\\\\?\\", "\\\\.\\")):
+        return path
+    if path.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + path[2:]
+    return "\\\\?\\" + path
 
+
+def native_tool_path(path):
+    path = str(path)
+    if path.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + path[8:]
+    return path.removeprefix("\\\\?\\")
+
+
+if os.name == "nt" and sys.flags.isolated:
     sys.path[:] = [extended_path(path) for path in sys.path]
 
 import numpy as np
@@ -72,6 +81,16 @@ class Engine:
         self.binary = model_path.parent / ("realesrgan-ncnn-vulkan.exe" if os.name == "nt"
                                           else "realesrgan-ncnn-vulkan")
         self.device_reported = False
+        if os.name == "nt" and self.gpu:
+            # The bundled Vulkan CLI joins paths with '/', including batch files.
+            # Its Win32 file APIs therefore cannot consume extended-length paths.
+            native_files = (model_path / (self.stem + ".param"),
+                            self.temp / ("gpu_batch/output/00000.png"
+                                         if args.kind == "video" else "output.png"))
+            if any(len(native_tool_path(f).encode("utf-16-le")) // 2 >= 260 for f in native_files):
+                self.gpu = False
+                self.device_reported = True
+                emit(device="CPU", stage="長い作業パスのためCPUでAI処理します")
 
     def cpu(self, image):
         if self.net is None:
@@ -121,8 +140,8 @@ class Engine:
             src, dst = self.temp / "input.png", self.temp / "output.png"
             rgb.save(src)
             dst.unlink(missing_ok=True)
-            cmd = [str(self.binary), "-i", str(src), "-o", str(dst),
-                   "-m", self.args.models, "-n", self.model,
+            cmd = [str(self.binary), "-i", native_tool_path(src), "-o", native_tool_path(dst),
+                   "-m", native_tool_path(self.args.models), "-n", self.model,
                    "-s", str(self.native_scale), "-t", "128", "-j", "1:1:1"]
             if self.args.quality == "high" and self.args.kind == "image":
                 cmd.append("-x")
@@ -166,8 +185,8 @@ class Engine:
             old.unlink()
         for index, image in enumerate(images):
             image.convert("RGB").save(inputs / f"{index:05d}.png", compress_level=1)
-        cmd = [str(self.binary), "-i", str(inputs), "-o", str(outputs),
-               "-m", self.args.models, "-n", self.model,
+        cmd = [str(self.binary), "-i", native_tool_path(inputs), "-o", native_tool_path(outputs),
+               "-m", native_tool_path(self.args.models), "-n", self.model,
                "-s", str(self.native_scale), "-t", "128", "-j", "2:2:2", "-f", "png"]
         # TTA (-x) multiplies video processing time dramatically. High quality
         # video still uses the selected x4 model; TTA is reserved for images.
@@ -311,6 +330,14 @@ def main():
     parser.add_argument("--preview", action="store_true")
     parser.add_argument("--preview-original", default="")
     args = parser.parse_args()
+    if os.name == "nt":
+        # The working directory for frame conversion lives beside the output.
+        # Its children can exceed MAX_PATH even when the output itself does not.
+        args.input = extended_path(args.input)
+        args.output = extended_path(args.output)
+        args.models = extended_path(args.models)
+        if args.preview_original:
+            args.preview_original = extended_path(args.preview_original)
     if Path(args.output).exists():
         raise ValueError("出力ファイルが既に存在します。")
     emit(progress=0, stage="AIモデルを準備中")
