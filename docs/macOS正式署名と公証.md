@@ -42,3 +42,17 @@ base64 -i AuthKey_XXXXXXXXXX.p8 | pbcopy
 ## ローカルビルド
 
 開発中のローカルビルドでは従来どおりAd-hoc署名を利用できます。配布用と同じ厳格な検査を行う場合は、署名・公証用の環境変数を設定し、`REQUIRE_MACOS_NOTARIZATION=1`で`build_macos.sh`を実行します。
+
+## PRブランチからの候補検証
+
+Actionsの「Build desktop releases」で検証するブランチを選び、`verify_candidate` を有効にして実行する。CLIからは次の指定を使う。
+
+```sh
+gh workflow run release.yml --ref windows2-full-acceptance -f verify_candidate=true
+```
+
+この入力ではApple SiliconとIntelのホストでローカル版番号を使い、Release作成・タグ付けを含む公開ジョブはスキップされる。通常のmainへのバージョン更新・タグ・公開用手動実行は従来の条件で動く。
+
+署名用設定5項目が揃った候補ではDeveloper ID署名とApple公証を実行する。候補検証で設定が不足しているときは警告を記録し、`candidate-…-adhoc` の成果物にビルドとパッケージの結果を残す。正式配布の判定には `candidate-…-notarized` の結果が必要となる。公開用ジョブは必要な設定が不足すると停止する。
+
+各ホストでDMGを読み取り専用でマウントし、Applications相当へコピーしたアプリとZIP展開物のバージョン・署名・アーキテクチャ・実行権限を調べる。コピーしたアプリのGUIウィンドウを検出し、同梱エンジンで画像と音声付き動画をテストする。SHA-256と、取得可能な場合はGUIのウィンドウ画像を成果物に含める。ホスト上の自動確認と、利用者のMacでの日本語表示・操作確認は受け入れ記録で区別する。

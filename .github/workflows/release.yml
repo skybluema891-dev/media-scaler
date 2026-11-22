@@ -5,6 +5,11 @@ on:
     tags: ['v[0-9]*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      verify_candidate:
+        description: 'Verify macOS candidate only (never publish a release)'
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -16,6 +21,7 @@ jobs:
     outputs:
       version: ${{ steps.plan.outputs.version }}
       publish: ${{ steps.plan.outputs.publish }}
+      candidate: ${{ steps.plan.outputs.candidate }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -80,7 +86,7 @@ jobs:
           if-no-files-found: error
   macos:
     needs: prepare
-    if: needs.prepare.outputs.publish == 'true'
+    if: needs.prepare.outputs.publish == 'true' || needs.prepare.outputs.candidate == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -103,7 +109,9 @@ jobs:
           python scripts/prepare_tools.py
           python scripts/build_worker.py
       - name: Install Developer ID certificate and notarization key
+        id: signing
         env:
+          VERIFY_CANDIDATE: ${{ needs.prepare.outputs.candidate }}
           MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
@@ -112,6 +120,12 @@ jobs:
         run: |
           for variable in MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD APPLE_API_KEY_P8_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER_ID; do
             if [ -z "${!variable:-}" ]; then
+              if [ "$VERIFY_CANDIDATE" = true ]; then
+                echo "::warning::Signing configuration is incomplete. Building an ad-hoc verification artifact."
+                echo "notarize=0" >> "$GITHUB_OUTPUT"
+                echo "Signature: ad hoc. Apple notarization and Gatekeeper acceptance unverified." >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
               echo "::error::Required GitHub secret is missing: $variable"
               exit 1
             fi
@@ -144,21 +158,28 @@ jobs:
             exit 1
           fi
           echo "MACOS_SIGN_IDENTITY=$MACOS_SIGN_IDENTITY" >> "$GITHUB_ENV"
+          echo "notarize=1" >> "$GITHUB_OUTPUT"
       - name: Build app, ZIP and DMG
         env:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
           UPDATE_REPOSITORY: ${{ github.repository }}
-          REQUIRE_MACOS_NOTARIZATION: '1'
+          REQUIRE_MACOS_NOTARIZATION: ${{ steps.signing.outputs.notarize }}
         run: |
           bash scripts/build_macos.sh "$RELEASE_VERSION"
-      - name: Engine integration tests
-        run: python -m unittest discover -s ai_worker -p "test_*.py"
+      - name: Verify packaged artifacts and run the relocated application
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          REQUIRE_MACOS_NOTARIZATION: ${{ steps.signing.outputs.notarize }}
+          EXPECTED_ARCH: ${{ matrix.os == 'macos-15-intel' && 'x86_64' || 'arm64' }}
+        run: bash scripts/verify_macos_candidate.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}
+          name: ${{ needs.prepare.outputs.candidate == 'true' && format('candidate-{0}-{1}', matrix.os, steps.signing.outputs.notarize == '1' && 'notarized' || 'adhoc') || matrix.os }}
           path: |
-            dist/*.zip
-            dist/*.dmg
+            dist/MediaScaler-*.zip
+            dist/MediaScaler-*.dmg
+            dist/SHA256SUMS-macos-*.txt
+            dist/window-macos-*.png
           if-no-files-found: error
       - name: Remove temporary signing keychain
         if: always()
