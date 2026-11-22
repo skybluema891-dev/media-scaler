@@ -187,6 +187,18 @@ Win32Window::MessageHandler(HWND hwnd,
       }
       return 0;
 
+    case WM_GETMINMAXINFO: {
+      const UINT dpi = FlutterDesktopGetDpiForMonitor(
+          MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST));
+      RECT frame{0, 0, MulDiv(420, dpi, 96), MulDiv(300, dpi, 96)};
+      if (AdjustWindowRectExForDpi(&frame, GetWindowLong(hwnd, GWL_STYLE),
+                                  FALSE, GetWindowLong(hwnd, GWL_EXSTYLE), dpi)) {
+        auto* limits = reinterpret_cast<MINMAXINFO*>(lparam);
+        limits->ptMinTrackSize = {frame.right - frame.left, frame.bottom - frame.top};
+        return 0;
+      }
+      break;
+    }
     case WM_DPICHANGED: {
       auto newRectSize = reinterpret_cast<RECT*>(lparam);
       LONG newWidth = newRectSize->right - newRectSize->left;
@@ -208,7 +220,7 @@ Win32Window::MessageHandler(HWND hwnd,
     }
 
     case WM_ACTIVATE:
-      if (child_content_ != nullptr) {
+      if (LOWORD(wparam) != WA_INACTIVE && !HIWORD(wparam) && child_content_) {
         SetFocus(child_content_);
       }
       return 0;
