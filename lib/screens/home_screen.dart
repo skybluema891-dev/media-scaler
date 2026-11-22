@@ -232,7 +232,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ffmpeg: _ffmpeg,
                 onProgress: progressUpdate,
                 onStage: (value) {
-                  if (mounted) setState(() => _stage = value);
+                  if (mounted && _stage != value)
+                    setState(() => _stage = value);
                 },
               )
             : await _ffmpeg.convert(
@@ -269,9 +270,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (!mounted) return;
     setState(() => _processing = false);
-    final errors = _items.where((item) => item.state == JobState.error).length;
-    final cancelled = _items.any((item) => item.state == JobState.cancelled);
-    if (errors == 0 && !cancelled) _message('処理が完了しました。');
   }
 
   Future<void> _cancel() async {
@@ -318,7 +316,7 @@ class _HomeScreenState extends State<HomeScreen> {
         previewDirectory: previewPath,
         onProgress: (_, _, _) {},
         onStage: (stage) {
-          if (mounted) setState(() => _stage = stage);
+          if (mounted && _stage != stage) setState(() => _stage = stage);
         },
       );
       if (mounted && !_cancelRequested) {
@@ -416,16 +414,18 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Row(
             children: [
               Expanded(
-                child: Text(
-                  '${_items.length} ファイル　完了 ${_items.where((e) => e.state == JobState.completed).length} 件',
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    '${_items.length} ファイル　完了 ${_items.where((e) => e.state == JobState.completed).length} 件',
+                  ),
                 ),
               ),
-              if (_processing)
-                OutlinedButton.icon(
-                  onPressed: _cancel,
-                  icon: const Icon(Icons.stop_circle_outlined),
-                  label: const Text('キャンセル'),
-                ),
+              OutlinedButton.icon(
+                onPressed: _processing && !_cancelRequested ? _cancel : null,
+                icon: const Icon(Icons.stop_circle_outlined),
+                label: const Text('キャンセル'),
+              ),
               const SizedBox(width: 12),
               FilledButton.icon(
                 onPressed: !_processing && _items.isNotEmpty ? _startAll : null,
@@ -543,28 +543,37 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Icon(Icons.movie_outlined, size: 34),
             ),
       title: Text(item.fileName, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
+      subtitle: Semantics(
+        container: true,
+        excludeSemantics: true,
+        label:
             '${item.kind == MediaKind.image ? '画像' : '動画'} ・ ${formatBytes(item.sizeBytes)}',
-          ),
-          if (item.state == JobState.processing) ...[
-            const SizedBox(height: 4),
-            LinearProgressIndicator(value: item.progress),
+        value: item.state == JobState.processing
+            ? '${(item.progress * 100).round()}% ・ 経過 ${formatDuration(item.elapsed)}${item.remaining == null ? '' : ' ・ 残り約 ${formatDuration(item.remaining!)}'}'
+            : item.errorMessage ?? status.$1,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Text(
-              '${(item.progress * 100).toStringAsFixed(0)}% ・ 経過 ${formatDuration(item.elapsed)}${item.remaining == null ? '' : ' ・ 残り約 ${formatDuration(item.remaining!)}'}',
-              style: Theme.of(context).textTheme.bodySmall,
+              '${item.kind == MediaKind.image ? '画像' : '動画'} ・ ${formatBytes(item.sizeBytes)}',
             ),
+            if (item.state == JobState.processing) ...[
+              const SizedBox(height: 4),
+              LinearProgressIndicator(value: item.progress),
+              Text(
+                '${(item.progress * 100).toStringAsFixed(0)}% ・ 経過 ${formatDuration(item.elapsed)}${item.remaining == null ? '' : ' ・ 残り約 ${formatDuration(item.remaining!)}'}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+            if (item.errorMessage != null && item.state == JobState.error)
+              Text(
+                item.errorMessage!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
           ],
-          if (item.errorMessage != null && item.state == JobState.error)
-            Text(
-              item.errorMessage!,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-        ],
+        ),
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -704,7 +713,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 icon: const Icon(Icons.compare),
                 label: const Text('画像のAI比較プレビュー'),
               ),
-              if (_processing) Text(_stage),
+              Text(_processing ? _stage : '待機中'),
               const SizedBox(height: 14),
             ],
             SegmentedButton<ScaleMode>(

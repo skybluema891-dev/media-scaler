@@ -157,7 +157,11 @@ class AiService {
       final process = await Process.start(exe, args);
       _process = process;
       if (_cancelled) await cancel();
-      ticker = Timer.periodic(const Duration(seconds: 1), (_) => report());
+      // Coalesce tile/frame events into visible updates. Always report completion.
+      ticker = Timer.periodic(
+        const Duration(milliseconds: 250),
+        (_) => report(),
+      );
       String? error;
       final errors = StringBuffer();
       final stderrDone = process.stderr
@@ -178,7 +182,6 @@ class AiService {
                 onStage?.call(event['stage'] as String);
               }
               if (event['error'] is String) error = event['error'] as String;
-              report();
             } catch (_) {}
           });
       final code = await process.exitCode;

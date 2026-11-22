@@ -59,6 +59,7 @@ try {
         foreach ($folder in @('ai','ffmpeg','licenses')) {
             Copy-Item (Join-Path $project "tools\$folder") (Join-Path $source 'tools') -Recurse
         }
+        Copy-Item (Join-Path $source 'ai_worker\worker.py') (Join-Path $source 'tools\ai\windows\worker.py') -Force
     }
     foreach ($file in @('pubspec.yaml','pubspec.lock','analysis_options.yaml','.metadata','THIRD_PARTY_NOTICES.txt','パラメーター設定ガイド.txt')) {
         Copy-Item (Join-Path $project $file) $source

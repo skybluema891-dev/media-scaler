@@ -30,7 +30,11 @@ class _PreviewDialogState extends State<PreviewDialog> {
               builder: (_, box) => Stack(
                 children: [
                   Positioned.fill(
-                    child: Image.file(File(widget.result), fit: BoxFit.contain),
+                    child: Image.file(
+                      File(widget.result),
+                      fit: BoxFit.contain,
+                      excludeFromSemantics: true,
+                    ),
                   ),
                   Positioned.fill(
                     child: ClipRect(
@@ -38,6 +42,7 @@ class _PreviewDialogState extends State<PreviewDialog> {
                       child: Image.file(
                         File(widget.original),
                         fit: BoxFit.contain,
+                        excludeFromSemantics: true,
                       ),
                     ),
                   ),
@@ -56,6 +61,8 @@ class _PreviewDialogState extends State<PreviewDialog> {
           ),
           Slider(
             value: _split,
+            semanticFormatterCallback: (value) =>
+                '元画像 ${(value * 100).round()}パーセント',
             onChanged: (value) => setState(() => _split = value),
           ),
         ],

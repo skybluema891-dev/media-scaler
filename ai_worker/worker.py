@@ -10,6 +10,18 @@ import tempfile
 import time
 from fractions import Fraction
 
+# The Windows embedded interpreter reads absolute paths from python313._pth.
+# Supply extended paths before loading packages with deeply nested .pyd files.
+if os.name == "nt" and sys.flags.isolated:
+    def extended_path(path):
+        if path.startswith(("\\\\?\\", "\\\\.\\")) or not os.path.isabs(path):
+            return path
+        if path.startswith("\\\\"):
+            return "\\\\?\\UNC\\" + path[2:]
+        return "\\\\?\\" + path
+
+    sys.path[:] = [extended_path(path) for path in sys.path]
+
 import numpy as np
 from PIL import Image, ImageOps
 import ncnn
