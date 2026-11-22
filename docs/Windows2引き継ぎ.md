@@ -74,6 +74,8 @@ python -B scripts/manage_windows.py run --purpose 'Place accepted Windows build'
 python -B scripts/manage_windows.py finish --outcome success --task-id MediaScalerWindows2Acceptance
 ```
 
+ソースSHA別に保管した候補には、昇格コマンドの `-Version $version` に続けて `-SourceSha <検証したコミットの12桁または40桁>` を指定する。`-WhatIf` を加えると、候補と出力先の事前検査だけを実行する。SHA指定時は `build/candidate-<先頭12桁>/` のアプリとインストーラーを保持し、完成アプリ用のコピーで `runtime.json` の相対パスを更新する。SHAを省略した従来のコマンドは `build/candidate/` から移動する。
+
 各作業依頼の終了前に `finish` を実行する。受け入れ途中では `--outcome incomplete` を指定する。初回は `cleanup.py sweep --project <開発環境の実パス>` で候補を確認する。正常終了した実行の明示出力は `finish` が回収し、要約と容量を `logs/task-finish-*.json` に記録する。調査中の出力は共通清掃の保持記録に従う。
 
 ## Git外のファイルとデータ
