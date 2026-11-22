@@ -1,14 +1,102 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:media_scaler/main.dart';
 import 'package:media_scaler/models/media_item.dart';
 import 'package:media_scaler/screens/home_screen.dart';
+import 'package:media_scaler/screens/preview_dialog.dart';
 import 'package:media_scaler/services/app_settings.dart';
 
 void main() {
+  test('new profiles use dark, saved theme choices survive loading', () async {
+    SharedPreferences.setMockInitialValues({});
+    expect((await AppSettings.load()).themeMode, ThemeMode.dark);
+    for (final choice in ThemeMode.values) {
+      SharedPreferences.setMockInitialValues({'themeMode': choice.name});
+      final settings = await AppSettings.load();
+      expect(settings.themeMode, choice);
+      await settings.save();
+      expect((await AppSettings.load()).themeMode, choice);
+    }
+  });
+
+  testWidgets(
+    'compact window keeps settings and action bar reachable at larger text',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(420, 300);
+      tester.view.devicePixelRatio = 1;
+      tester.platformDispatcher.textScaleFactorTestValue = 1.5;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.pumpWidget(
+        MediaScalerApp(
+          settings: await AppSettings.load(),
+          checkToolsOnStart: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        Theme.of(tester.element(find.byType(Scaffold))).brightness,
+        Brightness.dark,
+      );
+      await tester.ensureVisible(find.text('保存先フォルダを選ぶ'));
+      await tester.pumpAndSettle();
+      expect(find.text('保存先フォルダを選ぶ').hitTestable(), findsOneWidget);
+      expect(find.text('すべて変換開始').hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'comparison slider exposes its changing keyboard value and Escape closes the route',
+    (tester) async {
+      final handle = tester.ensureSemantics();
+      addTearDown(handle.dispose);
+      tester.view.physicalSize = const Size(420, 300);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      const icon =
+          'macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_16.png';
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) =>
+                    const PreviewDialog(original: icon, result: icon),
+              ),
+              child: const Text('プレビュー'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('プレビュー'));
+      await tester.pumpAndSettle();
+      final slider = find.byType(Slider);
+      final boundary = find.semantics.byLabel('比較境界');
+      expect(boundary, findsOne);
+      expect(boundary.evaluate().single.value, '元画像 50パーセント');
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pumpAndSettle();
+      final value = tester.widget<Slider>(slider).value;
+      expect(value, greaterThan(.5));
+      expect(
+        boundary.evaluate().single.value,
+        '元画像 ${(value * 100).round()}パーセント',
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(slider, findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets('output rename choice is selectable and persisted', (
     tester,
   ) async {

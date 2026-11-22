@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
+import '../app_theme.dart';
 import '../models/media_item.dart';
 import '../services/app_logger.dart';
 import '../services/app_settings.dart';
@@ -77,7 +78,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void _message(String text, {bool error = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(text),
+        content: Text(
+          text,
+          style: error
+              ? TextStyle(color: Theme.of(context).colorScheme.onError)
+              : null,
+        ),
         backgroundColor: error ? Theme.of(context).colorScheme.error : null,
       ),
     );
@@ -232,8 +238,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ffmpeg: _ffmpeg,
                 onProgress: progressUpdate,
                 onStage: (value) {
-                  if (mounted && _stage != value)
+                  if (mounted && _stage != value) {
                     setState(() => _stage = value);
+                  }
                 },
               )
             : await _ffmpeg.convert(
@@ -322,6 +329,12 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted && !_cancelRequested) {
         await showDialog<void>(
           context: context,
+          // On Windows, expose the comparison route without overlapping the
+          // outgoing and incoming accessibility trees during a transition.
+          animationStyle: Platform.isWindows
+              ? AnimationStyle.noAnimation
+              : null,
+          requestFocus: true,
           builder: (_) => PreviewDialog(
             original: p.join(previewPath, 'original.png'),
             result: output,
@@ -347,15 +360,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     return Scaffold(
       appBar: AppBar(
-        title: const Column(
+        toolbarHeight: 56 * MediaQuery.textScalerOf(context).scale(1),
+        titleSpacing: 20,
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Media Scaler'),
+            Text(
+              'Media Scaler',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleLarge,
+            ),
             Text(
               '画像・動画をかんたん拡大／縮小',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall,
             ),
           ],
         ),
@@ -383,59 +407,100 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final list = _fileArea();
-          final panel = _settingsPanel();
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: constraints.maxWidth >= 900
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(flex: 3, child: list),
-                      const SizedBox(width: 16),
-                      SizedBox(width: 360, child: panel),
-                    ],
-                  )
-                : Column(
-                    children: [
-                      Expanded(child: list),
-                      const SizedBox(height: 12),
-                      SizedBox(height: 380, child: panel),
-                    ],
-                  ),
-          );
-        },
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: theme.brightness == Brightness.dark
+              ? AppTheme.darkBackground
+              : null,
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final list = _fileArea();
+            final panel = _settingsPanel();
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: constraints.maxWidth >= 900
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(flex: 3, child: list),
+                        const SizedBox(width: 16),
+                        SizedBox(width: 360, child: panel),
+                      ],
+                    )
+                  : SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          SizedBox(
+                            height: (constraints.maxHeight * .5).clamp(
+                              300.0,
+                              440.0,
+                            ),
+                            child: list,
+                          ),
+                          const SizedBox(height: 12),
+                          panel,
+                        ],
+                      ),
+                    ),
+            );
+          },
+        ),
       ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
-          child: Row(
-            children: [
-              Expanded(
-                child: Semantics(
+      bottomNavigationBar: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerLow,
+          border: Border(top: BorderSide(color: colors.outlineVariant)),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: LayoutBuilder(
+              builder: (context, box) {
+                final count = Semantics(
                   liveRegion: true,
                   child: Text(
                     '${_items.length} ファイル　完了 ${_items.where((e) => e.state == JobState.completed).length} 件',
+                    style: theme.textTheme.bodyMedium,
                   ),
-                ),
-              ),
-              OutlinedButton.icon(
-                onPressed: _processing && !_cancelRequested ? _cancel : null,
-                icon: const Icon(Icons.stop_circle_outlined),
-                label: const Text('キャンセル'),
-              ),
-              const SizedBox(width: 12),
-              FilledButton.icon(
-                onPressed: !_processing && _items.isNotEmpty ? _startAll : null,
-                icon: const Icon(Icons.play_arrow),
-                label: const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Text('すべて変換開始'),
-                ),
-              ),
-            ],
+                );
+                final buttons = [
+                  OutlinedButton.icon(
+                    onPressed: _processing && !_cancelRequested
+                        ? _cancel
+                        : null,
+                    icon: const Icon(Icons.stop_circle_outlined),
+                    label: const Text('キャンセル'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: !_processing && _items.isNotEmpty
+                        ? _startAll
+                        : null,
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('すべて変換開始'),
+                  ),
+                ];
+                if (box.maxWidth <
+                    420 * MediaQuery.textScalerOf(context).scale(1)) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      count,
+                      Wrap(spacing: 8, children: buttons),
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: count),
+                    buttons.first,
+                    const SizedBox(width: 8),
+                    buttons.last,
+                  ],
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -459,26 +524,32 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? Theme.of(context).colorScheme.primaryContainer
                   : Theme.of(context).colorScheme.surfaceContainerLow,
               padding: const EdgeInsets.all(16),
-              child: Row(
+              child: OverflowBar(
+                alignment: MainAxisAlignment.spaceBetween,
+                overflowAlignment: OverflowBarAlignment.start,
+                overflowSpacing: 2,
                 children: [
-                  Expanded(
-                    child: Text(
-                      _dragging ? 'ここにドロップしてください' : 'ファイル一覧',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
+                  Text(
+                    _dragging ? 'ここにドロップしてください' : 'ファイル一覧',
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
-                  if (_items.isNotEmpty) ...[
-                    TextButton.icon(
-                      onPressed: _processing ? null : _clearItems,
-                      icon: const Icon(Icons.delete_sweep_outlined),
-                      label: const Text('一覧を空にする'),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  OutlinedButton.icon(
-                    onPressed: _processing ? null : _pickFiles,
-                    icon: const Icon(Icons.add_photo_alternate_outlined),
-                    label: const Text('画像・動画を追加'),
+                  Wrap(
+                    spacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (_items.isNotEmpty) ...[
+                        TextButton.icon(
+                          onPressed: _processing ? null : _clearItems,
+                          icon: const Icon(Icons.delete_sweep_outlined),
+                          label: const Text('一覧を空にする'),
+                        ),
+                      ],
+                      OutlinedButton.icon(
+                        onPressed: _processing ? null : _pickFiles,
+                        icon: const Icon(Icons.add_photo_alternate_outlined),
+                        label: const Text('画像・動画を追加'),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -499,29 +570,75 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _emptyDropArea() => InkWell(
-    onTap: _pickFiles,
-    child: const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.file_upload_outlined, size: 54),
-          SizedBox(height: 12),
-          Text('画像・動画をここへドラッグ＆ドロップ'),
-          SizedBox(height: 4),
-          Text('または上の「画像・動画を追加」を押します'),
-        ],
+  Widget _emptyDropArea() {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Material(
+        color: _dragging
+            ? colors.secondaryContainer
+            : colors.surfaceContainerLow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(
+            color: _dragging ? colors.primary : colors.outlineVariant,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: _pickFiles,
+          child: Center(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.file_upload_outlined,
+                      size: 36,
+                      color: colors.onSurfaceVariant,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      '画像・動画をここへドラッグ＆ドロップ',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'または上の「画像・動画を追加」を押します',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   Widget _itemTile(MediaItem item) {
+    final colors = Theme.of(context).colorScheme;
+    final dark = colors.brightness == Brightness.dark;
     final status = switch (item.state) {
-      JobState.waiting => ('待機中', Icons.schedule, Colors.grey),
-      JobState.processing => ('処理中', Icons.sync, Colors.blue),
-      JobState.completed => ('完了', Icons.check_circle, Colors.green),
-      JobState.error => ('エラー', Icons.error, Colors.red),
-      JobState.cancelled => ('キャンセル', Icons.cancel, Colors.orange),
+      JobState.waiting => ('待機中', Icons.schedule, colors.onSurfaceVariant),
+      JobState.processing => ('処理中', Icons.sync, colors.primary),
+      JobState.completed => (
+        '完了',
+        Icons.check_circle,
+        dark ? const Color(0xFF9CC4AC) : const Color(0xFF286444),
+      ),
+      JobState.error => ('エラー', Icons.error, colors.error),
+      JobState.cancelled => (
+        'キャンセル',
+        Icons.cancel,
+        dark ? const Color(0xFFD8BC8E) : const Color(0xFF715124),
+      ),
     };
     return ListTile(
       key: ValueKey(item.path),
@@ -626,6 +743,35 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Text('処理設定', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 14),
+            SegmentedButton<ScaleMode>(
+              segments: const [
+                ButtonSegment(value: ScaleMode.ai, label: Text('AI')),
+                ButtonSegment(
+                  value: ScaleMode.upscale,
+                  label: Text('拡大'),
+                  icon: Icon(Icons.zoom_out_map),
+                ),
+                ButtonSegment(
+                  value: ScaleMode.downscale,
+                  label: Text('縮小'),
+                  icon: Icon(Icons.zoom_in_map),
+                ),
+              ],
+              selected: {settings.scaleMode},
+              onSelectionChanged: _processing
+                  ? null
+                  : (value) {
+                      setState(() {
+                        settings.scaleMode = value.first;
+                        if (settings.scaleMode == ScaleMode.downscale &&
+                            settings.sizeType == SizeType.multiplier) {
+                          settings.sizeType = SizeType.preset;
+                        }
+                      });
+                      unawaited(settings.save());
+                    },
+            ),
+            const SizedBox(height: 14),
             if (settings.scaleMode == ScaleMode.ai) ...[
               Text(_modelStatus, style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 10),
@@ -716,38 +862,10 @@ class _HomeScreenState extends State<HomeScreen> {
               Text(_processing ? _stage : '待機中'),
               const SizedBox(height: 14),
             ],
-            SegmentedButton<ScaleMode>(
-              segments: const [
-                ButtonSegment(value: ScaleMode.ai, label: Text('AI')),
-                ButtonSegment(
-                  value: ScaleMode.upscale,
-                  label: Text('拡大'),
-                  icon: Icon(Icons.zoom_out_map),
-                ),
-                ButtonSegment(
-                  value: ScaleMode.downscale,
-                  label: Text('縮小'),
-                  icon: Icon(Icons.zoom_in_map),
-                ),
-              ],
-              selected: {settings.scaleMode},
-              onSelectionChanged: _processing
-                  ? null
-                  : (value) {
-                      setState(() {
-                        settings.scaleMode = value.first;
-                        if (settings.scaleMode == ScaleMode.downscale &&
-                            settings.sizeType == SizeType.multiplier) {
-                          settings.sizeType = SizeType.preset;
-                        }
-                      });
-                      unawaited(settings.save());
-                    },
-            ),
-            const SizedBox(height: 14),
             DropdownButtonFormField<SizeType>(
               key: ValueKey(settings.sizeType),
               initialValue: settings.sizeType,
+              isExpanded: true,
               decoration: const InputDecoration(labelText: 'サイズの決め方'),
               items: [
                 if (settings.scaleMode != ScaleMode.downscale)
@@ -777,6 +895,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 12),
             DropdownButtonFormField<NormalQuality>(
               initialValue: settings.normalQuality,
+              isExpanded: true,
               decoration: const InputDecoration(
                 labelText: '変換のきれいさ',
                 helperText: '高品質ほど処理に時間がかかります',
@@ -805,6 +924,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 DropdownButtonFormField<VideoQuality>(
                   initialValue: settings.videoQuality,
+                  isExpanded: true,
                   decoration: const InputDecoration(labelText: '動画品質'),
                   items: const [
                     DropdownMenuItem(
@@ -835,6 +955,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 10),
                 DropdownButtonFormField<VideoCodec>(
                   initialValue: settings.videoCodec,
+                  isExpanded: true,
                   decoration: const InputDecoration(labelText: '動画形式'),
                   items: const [
                     DropdownMenuItem(
@@ -886,6 +1007,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 12),
             DropdownButtonFormField<bool>(
               initialValue: settings.renameOutput,
+              isExpanded: true,
               decoration: const InputDecoration(labelText: 'タイトル（ファイル名）の変更'),
               items: const [
                 DropdownMenuItem(value: true, child: Text('変更OK（サイズを付ける）')),
@@ -950,6 +1072,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (settings.sizeType == SizeType.multiplier) {
       return DropdownButtonFormField<int>(
         initialValue: settings.multiplier,
+        isExpanded: true,
         decoration: const InputDecoration(labelText: '拡大倍率'),
         items: const [
           DropdownMenuItem(value: 2, child: Text('2倍')),
@@ -968,6 +1091,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (settings.sizeType == SizeType.preset) {
       return DropdownButtonFormField<int>(
         initialValue: settings.presetHeight,
+        isExpanded: true,
         decoration: const InputDecoration(
           labelText: '仕上がり解像度',
           helperText: '縦向き素材にも自動対応します',

@@ -29,7 +29,7 @@ class AppSettings extends ChangeNotifier {
   bool sameFolder = true;
   bool renameOutput = true;
   String outputDirectory = '';
-  ThemeMode themeMode = ThemeMode.system;
+  ThemeMode themeMode = ThemeMode.dark;
   NormalQuality aiQuality = NormalQuality.standard;
   String aiModel = 'photo';
   bool aiUseGpu = true;
@@ -87,7 +87,7 @@ class AppSettings extends ChangeNotifier {
     value.themeMode = _enumValue(
       ThemeMode.values,
       prefs.getString('themeMode'),
-      ThemeMode.system,
+      ThemeMode.dark,
     );
     if (value.scaleMode == ScaleMode.downscale &&
         value.sizeType == SizeType.multiplier) {
