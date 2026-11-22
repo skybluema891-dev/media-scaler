@@ -991,6 +991,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             Text('JPEG画像の品質：${settings.jpegQuality}'),
             Slider(
+              // On Windows, replace the slider and its value-indicator overlay
+              // together when disabling it. The AX bridge removes the old
+              // parent's subtree before attaching the new one.
+              key: Theme.of(context).platform == TargetPlatform.windows
+                  ? ValueKey(_processing)
+                  : null,
               value: settings.jpegQuality.toDouble(),
               min: 1,
               max: 100,
