@@ -50,6 +50,26 @@ class WorkerTests(unittest.TestCase):
         Image.fromarray(a).save(src)
         return src
 
+    @unittest.skipUnless(os.name == "nt", "Windows embedded runtime")
+    def test_deep_output_and_preview_keep_alpha(self):
+        # Give the worker an ordinary Windows path, including through the CLI.
+        # Only fixture creation and teardown use the extended form here.
+        extended_root = Path("\\\\?\\" + str(self.dir.resolve()))
+        with tempfile.TemporaryDirectory(dir=extended_root) as scratch:
+            target = Path(scratch)
+            while len(str(target)) < 275:
+                target /= "日本語 空白を含むフォルダ"
+            target.mkdir(parents=True)
+            output, original = target / "after.png", target / "before.png"
+            result = self.convert(self.image(), str(output)[4:], extra=(
+                "--gpu", "--preview", "--preview-original", str(original)[4:]))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('"device": "CPU"', result.stdout.decode())
+            with Image.open(output) as image:
+                self.assertEqual((image.size, image.mode), ((64, 48), "RGBA"))
+            with Image.open(original) as image:
+                self.assertEqual(image.size, (32, 24))
+
     def test_cpu_real_inference_alpha_and_no_overwrite(self):
         src, dst = self.image(), self.dir/"result.png"
         result = self.convert(src, dst)

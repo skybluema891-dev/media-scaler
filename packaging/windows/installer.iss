@@ -1,3 +1,6 @@
+#if VER < EncodeVer(7, 0, 0)
+  #error Inno Setup 7 or later is required for deep installation paths.
+#endif
 #ifndef AppVersion
   #define AppVersion "1.1.2"
 #endif
@@ -34,7 +37,7 @@ Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 [Tasks]
 Name: desktopicon; Description: "デスクトップにショートカットを作成"; Flags: unchecked
 [Files]
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "\runtime.json"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
 Name: "{group}\Media Scaler"; Filename: "{app}\Media Scaler.exe"
 Name: "{autodesktop}\Media Scaler"; Filename: "{app}\Media Scaler.exe"; Tasks: desktopicon

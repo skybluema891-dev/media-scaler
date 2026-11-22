@@ -63,7 +63,7 @@ jobs:
           python scripts/build_worker.py
       - name: Install packaging compiler
         shell: pwsh
-        run: choco install innosetup --no-progress -y
+        run: ./scripts/prepare_inno_windows.ps1
       - name: Build and package
         shell: pwsh
         env:

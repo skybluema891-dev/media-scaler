@@ -53,6 +53,7 @@ app.*.map.json
 /tools/ai/
 /tools/downloads/
 /tools/inno/
+/tools/inno-7.1.1/
 /tools/sdk/
 /tools/ffmpeg/windows/*.exe
 /tools/ffmpeg/macos/*

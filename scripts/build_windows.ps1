@@ -129,20 +129,12 @@ try {
     Copy-Item (Join-Path $crt.FullName '*.dll') $output -Force
     New-Item -ItemType Directory -Force $dist | Out-Null
     if (-not $Iscc) {
-        $Iscc = @("$env:ProgramFiles\Inno Setup 7\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
-            (Join-Path $project 'tools\inno\ISCC.exe')) | Where-Object { Test-Path $_ } | Select-Object -First 1
+        $Iscc = @((Join-Path $project 'tools\inno-7.1.1\ISCC.exe'), "$env:ProgramFiles\Inno Setup 7\ISCC.exe",
+            "$env:LOCALAPPDATA\Programs\Inno Setup 7\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
     }
-    if (-not $Iscc) { throw 'Inno Setup compiler is required for installer' }
-    # Inno enumerates the embedded packages using legacy Windows paths.
-    $payload = Join-Path ($drive + '\') 'package-input'
-    New-Item -ItemType Junction -Path $payload -Target $output | Out-Null
-    try {
-        & $Iscc /Q "/DAppVersion=$Version" "/DSourceDir=$payload" "/DOutputDir=$dist" (Join-Path $project 'packaging\windows\installer.iss')
-        if ($LASTEXITCODE) { throw 'Installer build failed' }
-    } finally {
-        [IO.Directory]::Delete($payload)
-    }
+    if (-not $Iscc) { throw 'Run scripts/prepare_inno_windows.ps1 to prepare Inno Setup 7.' }
+    & $Iscc /Q "/DAppVersion=$Version" "/DSourceDir=$output" "/DOutputDir=$dist" (Join-Path $project 'packaging\windows\installer.iss')
+    if ($LASTEXITCODE) { throw 'Installer build failed' }
     if ($env:COMMON_APP_DEV -eq $project -and $env:COMMON_APP_DATA_MODE -eq 'portable') {
         @{
             id = $env:COMMON_APP_ID
