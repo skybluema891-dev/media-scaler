@@ -43,12 +43,12 @@ python -B scripts/manage_windows.py context
 | Flutter | CIで指定している Flutter 3.47.3 stable、Dart 3.13.3 |
 | C++ | Visual Studioの「C++によるデスクトップ開発」、MSVC x64、CMake、Windows SDK。Windows 1の確認環境はVisual Studio 18.10 |
 | Python | Python 3.13 x64。Windows 1は3.13.15。組み込み版も3.13.15 x64 |
-| インストーラー | Inno Setup 6または7。標準のインストール先で検出できないときは `scripts/build_windows.ps1 -Iscc <パス>` |
+| インストーラー | 深いインストール先に対応するInno Setup 7。Windows 2とCIは `./scripts/prepare_inno_windows.ps1` で公式7.1.1を準備する。準備済みの場合は再利用する。 |
 | GPU | GPUメーカーのVulkan対応ドライバー。Real-ESRGANのGPU処理とFFmpegのハードウェアエンコードを端末ごとに確認する |
 
 `flutter doctor -v`、`git --version`、`python --version`、`pwsh --version` を実行し、同じターミナルから各ツールを呼び出せることを確認する。GitHubへのpush認証はWindows 2のGit Credential Manager等で設定する。更新確認は公開Releaseを使用する。Windowsのローカルビルドに秘密値は不要。CIは `UPDATE_REPOSITORY` とGitHubが提供する `GH_TOKEN` を使う。macOSの署名・公証設定は [既存の手順](macOS正式署名と公証.md) にある。
 
-Windows 2では、Flutter 3.47.3を `tools/sdk/flutter/`、Python 3.13.15 x64を `tools/sdk/python/`、Inno Setup 6を `tools/inno/` に配置する。ローカルのテスト・ビルドはこれらを優先し、パスに含まれる日本語・空白・括弧に対応するためFlutter SDKとビルド作業領域を一時的に別々の短いドライブ名で参照する。Flutter がプラグイン用シンボリックリンクを権限上作成できない場合は、ビルドの一時領域にディレクトリジャンクションを作成して続行する。SDKと依存キャッシュは次回も使う。Windows 2で下の例を実行するときは、必要に応じて `python` を `./tools/sdk/python/python.exe` に読み替える。
+Windows 2では、Flutter 3.47.3を `tools/sdk/flutter/`、Python 3.13.15 x64を `tools/sdk/python/`、Inno Setup 7.1.1を `tools/inno-7.1.1/` から使う。旧候補の再現用に6.7.4も `tools/inno/` に保持している。ローカルのテスト・ビルドは、日本語・空白・括弧を含むパスに対応するためFlutter SDKとビルド作業領域を一時的に別々の短いドライブ名で参照する。Flutter がプラグイン用シンボリックリンクを権限上作成できない場合は、ビルドの一時領域にディレクトリジャンクションを作成して続行する。SDKと依存キャッシュは次回も使う。Windows 2で下の例を実行するときは、必要に応じて `python` を `./tools/sdk/python/python.exe` に読み替える。
 
 ## 依存復元と確認用ビルド
 

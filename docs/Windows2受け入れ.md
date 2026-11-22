@@ -134,4 +134,6 @@ Windows x64 Release、ローカル版番号1.2.6、更新先はこのリポジ�
 
 **判定**　深いローカル配置のAI依存読み込みとインストーラー展開は検証範囲で解決。GUIには局所的な回避策を入れたが、正式受け入れは未完了でPR #1はDraftを維持する。次は2つの障害位置について修正が確認できる公式エンジンを照合し、同じ素材・UI Automation条件で再試験する。通常インストーラーのAppIdとAPPDATA、完成版1.2.5、元の候補1.2.6、Windows 1の復旧元を保持した。リポジトリの版は1.2.5+10、GitHub公開版はv1.2.5。公開条件にはWindowsの正式受け入れ、macOSのDeveloper ID署名・公証・ステープル確認、arm64／x64の配布物と対象実機での起動確認、新しい正式版番号が残る。
 
-Windows 2の生の証跡は `logs/win2aistability/` 内の `package.json`、`session-*.json`、`events.json`、`symbols.json`、`decoded.json`、`installed-worker.log`、`end-state.json` に保管した。
+包装ツールの世代変更が上書きに影響するため、完成版1.2.5（Inno 6）から最終候補（Inno 7）への1経路を追加した。隔離先に1.2.5を入れ、上書き時はインストール先を指定しなかった。同じAppId・インストール先を引き継ぎ、スタートメニューとデスクトップの両リンクが新しいEXEを指した。EXEのSHA-256は完成版の `62208f3f0670106c4cd963126fac3b47763e27d1d446fe316df07264c7394fb2` から表の最終候補へ変わった。アンインストール後は登録・両リンク・EXEが消え、通常のAPPDATAは試験前と同じ状態だった。この追加試験は配置と登録の互換性を対象とし、保存済み倍率などの継承は前節の実機記録を用いた。
+
+Windows 2の生の証跡は `logs/win2aistability/` 内の `package.json`、`session-*.json`、`events.json`、`symbols.json`、`decoded.json`、`installed-worker.log`、`upgrade67.json`、`end-state.json` に保管した。ローカルの絶対パスと生のイベントログは端末内で管理する。配布候補のソースに対するActionsは `prepare` と `checks` が成功し、Windows・macOS・公開の3ジョブはスキップされた。 [PR検査](https://github.com/skybluema891-dev/media-scaler/actions/runs/44971248468)・[ブランチ検査](https://github.com/skybluema891-dev/media-scaler/actions/runs/44971244736)
