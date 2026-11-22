@@ -55,8 +55,6 @@ void main() {
   testWidgets(
     'comparison slider exposes its changing keyboard value and Escape closes the route',
     (tester) async {
-      final handle = tester.ensureSemantics();
-      addTearDown(handle.dispose);
       tester.view.physicalSize = const Size(420, 300);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
