@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import 'app_theme.dart';
 import 'screens/home_screen.dart';
 import 'services/app_settings.dart';
 import 'services/windows_storage.dart';
@@ -32,23 +33,8 @@ class MediaScalerApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         title: 'Media Scaler${version.isEmpty ? '' : ' $version'}',
         themeMode: settings.themeMode,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff3659c9)),
-          useMaterial3: true,
-          inputDecorationTheme: const InputDecorationTheme(
-            border: OutlineInputBorder(),
-          ),
-        ),
-        darkTheme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xff8ea7ff),
-            brightness: Brightness.dark,
-          ),
-          useMaterial3: true,
-          inputDecorationTheme: const InputDecorationTheme(
-            border: OutlineInputBorder(),
-          ),
-        ),
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
         home: HomeScreen(
           settings: settings,
           checkToolsOnStart: checkToolsOnStart,

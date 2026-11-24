@@ -64,8 +64,15 @@ sign_code() {
 # native Python modules and their relocated dynamic libraries.
 while IFS= read -r -d '' file; do
   if file -b "$file" | grep -q 'Mach-O'; then
+    lipo "$file" -verify_arch "$ARCH"
     sign_code "$file"
     codesign --verify --strict "$file"
+    if [ "$REQUIRE_NOTARIZATION" = "1" ]; then
+      details="$(codesign -d --verbose=4 "$file" 2>&1)"
+      grep -F 'Authority=Developer ID Application:' <<< "$details" > /dev/null
+      grep -F '(runtime)' <<< "$details" > /dev/null
+      grep -E '^Timestamp=' <<< "$details" > /dev/null
+    fi
   fi
 done < <(find "$APP/Contents" -type f -print0)
 # Seal nested code bundles after their binaries, from the deepest bundle out.
@@ -100,8 +107,8 @@ notarize() {
 }
 
 if [ "$REQUIRE_NOTARIZATION" = "1" ]; then
-  ditto -c -k --keepParent "$APP" dist/notarize.zip
-  notarize dist/notarize.zip dist/notarize-app-result.json
+  ditto -c -k --keepParent "$APP" build/notarize-app.zip
+  notarize build/notarize-app.zip build/notarize-app-result.json
   xcrun stapler staple "$APP"
   xcrun stapler validate "$APP"
   spctl --assess --type execute --verbose=4 "$APP"

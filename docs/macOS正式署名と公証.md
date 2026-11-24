@@ -42,3 +42,42 @@ base64 -i AuthKey_XXXXXXXXXX.p8 | pbcopy
 ## ローカルビルド
 
 開発中のローカルビルドでは従来どおりAd-hoc署名を利用できます。配布用と同じ厳格な検査を行う場合は、署名・公証用の環境変数を設定し、`REQUIRE_MACOS_NOTARIZATION=1`で`build_macos.sh`を実行します。
+
+## PRブランチからの候補検証
+
+Actionsの「Build desktop releases」で検証するブランチを選び、`verify_candidate` を有効にして実行する。CLIからは次の指定を使う。
+
+```sh
+gh workflow run release.yml --ref windows2-full-acceptance -f verify_candidate=true
+```
+
+この入力ではApple SiliconとIntelのホストでローカル版番号を使い、Release作成・タグ付けを含む公開ジョブはスキップされる。通常のmainへのバージョン更新・タグ・公開用手動実行は従来の条件で動く。
+
+署名用設定5項目が揃った候補ではDeveloper ID署名とApple公証を実行する。候補検証で設定が不足しているときは警告を記録し、`candidate-…-adhoc` の成果物にビルドとパッケージの結果を残す。正式配布の判定には `candidate-…-notarized` の結果が必要となる。公開用ジョブは必要な設定が不足すると停止する。
+
+各ホストでDMGを読み取り専用でマウントし、Applications相当へコピーしたアプリとZIP展開物のバージョン・署名・アーキテクチャ・実行権限を調べる。コピーしたアプリのGUIウィンドウを検出し、同梱エンジンで画像と音声付き動画をテストする。SHA-256と、取得可能な場合はGUIのウィンドウ画像を成果物に含める。ホスト上の自動確認と、利用者のMacでの日本語表示・操作確認は受け入れ記録で区別する。
+
+## 2026年11月22日　候補 1.2.6+11 の検証記録
+
+PR #1 のソース `863c06c038e6bcced6187f76f5d013976d48f074` を指定して、GitHubホストのmacOS 15上で候補を作成した。Apple SiliconとIntelの両ジョブが成功し、Windowsビルドと公開ジョブはスキップされた。[候補検証の実行記録](https://github.com/skybluema891-dev/media-scaler/actions/runs/44978029748)
+
+| CPU | 候補の署名 | 成果物 |
+| --- | --- | --- |
+| Apple Silicon arm64 | Ad-hoc | [ZIP・DMG・SHA-256・ウィンドウ画像](https://github.com/skybluema891-dev/media-scaler/actions/runs/44978029748/artifacts/14735944504) |
+| Intel x86_64 | Ad-hoc | [ZIP・DMG・SHA-256・ウィンドウ画像](https://github.com/skybluema891-dev/media-scaler/actions/runs/44978029748/artifacts/14737021681) |
+
+両ホストで、DMGからApplications相当へコピーしたアプリとZIP内のアプリについて、版・アーキテクチャ・実行権限・Ad-hoc署名を検証した。両ホストともFlutterテスト26件が成功した。同梱AIワーカーのテストは各5件が成功し、Windows専用の1件はスキップされた。画像の拡大と音声付き動画の出力は、コピーしたアプリの同梱ワーカーを使って確認した。
+
+Windows 2に保存した両候補のZIPとDMGについて、取得時にActionsのアーカイブダイジェストとホストが記録した各ファイルのSHA-256を照合した。保存先は `build/candidate-macos-863c06c038e6/{arm64,x86_64}/`。各ディレクトリの `window-macos-<CPU>.png` を目視し、両方で「Media Scaler」の暗色画面に「ファイル一覧」「画像・動画を追加」「処理設定」「互換性優先 (H.264)」が読めることを確認した。表示されたMacのネイティブタイトルバーは明色だった。
+
+この実行ではリポジトリのActions Secretsの登録数は0件で、Macジョブでも署名設定が不足していた。Developer ID署名、Hardened Runtime・タイムスタンプ、Apple公証、チケット付与、Gatekeeperによる受け入れは正式配布前に両CPUで確認する。Mac利用端末でのGUIによる素材追加・変換・保存・再起動も残っている。
+
+公開版は v1.2.5。更新通知では1.2.6の候補マニフェストをfixtureに使い、リリースノート、OS・CPU別のダウンロード、スキップと通信失敗を検査した。実際の v1.2.6 へのオンライン更新確認は正式公開後に行う。
+
+### Windowsの品質スライダー修正を含む候補
+
+Windowsの修正版と同じソース `576411589ec8cfa478c97ca31b0af0a577300a3b` を使い、1.2.6+11 のMac候補を再作成した。2026年11月22日の候補検証で、prepare、checks、Apple Silicon、Intelの各ジョブが成功した。Windowsビルドと公開ジョブはスキップされた。[実行記録](https://github.com/skybluema891-dev/media-scaler/actions/runs/44981640612)
+
+両CPUでAd-hoc署名済みZIPとDMGを作成し、展開・コピー後の版と署名、アーキテクチャ、GUI起動、同梱ワーカーの出力を検査した。Developer ID・公証・Gatekeeperと利用端末でのGUI操作の確認は引き続き正式配布の条件となる。[Apple Siliconの成果物](https://github.com/skybluema891-dev/media-scaler/actions/runs/44981640612/artifacts/14737493871) [Intelの成果物](https://github.com/skybluema891-dev/media-scaler/actions/runs/44981640612/artifacts/14737809409)
+
+Windows 2では両成果物のActionsダイジェストとZIP・DMG各ファイルのSHA-256を照合し、旧候補を保持したまま `build/candidate-macos-576411589ec8/{arm64,x86_64}/` に保存した。各 `window-macos-<CPU>.png` を開いて、両方で暗色の画面に日本語の「ファイル一覧」「画像・動画を追加」「処理設定」が読めることを確認した。照合記録は `logs/mac-candidate-ci/44981640612-{arm64,x86_64}.json` にある。

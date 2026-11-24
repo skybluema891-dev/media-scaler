@@ -59,6 +59,7 @@ try {
         foreach ($folder in @('ai','ffmpeg','licenses')) {
             Copy-Item (Join-Path $project "tools\$folder") (Join-Path $source 'tools') -Recurse
         }
+        Copy-Item (Join-Path $source 'ai_worker\worker.py') (Join-Path $source 'tools\ai\windows\worker.py') -Force
     }
     foreach ($file in @('pubspec.yaml','pubspec.lock','analysis_options.yaml','.metadata','THIRD_PARTY_NOTICES.txt','パラメーター設定ガイド.txt')) {
         Copy-Item (Join-Path $project $file) $source
@@ -128,11 +129,10 @@ try {
     Copy-Item (Join-Path $crt.FullName '*.dll') $output -Force
     New-Item -ItemType Directory -Force $dist | Out-Null
     if (-not $Iscc) {
-        $Iscc = @("$env:ProgramFiles\Inno Setup 7\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
-            (Join-Path $project 'tools\inno\ISCC.exe')) | Where-Object { Test-Path $_ } | Select-Object -First 1
+        $Iscc = @((Join-Path $project 'tools\inno-7.1.1\ISCC.exe'), "$env:ProgramFiles\Inno Setup 7\ISCC.exe",
+            "$env:LOCALAPPDATA\Programs\Inno Setup 7\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
     }
-    if (-not $Iscc) { throw 'Inno Setup compiler is required for installer' }
+    if (-not $Iscc) { throw 'Run scripts/prepare_inno_windows.ps1 to prepare Inno Setup 7.' }
     & $Iscc /Q "/DAppVersion=$Version" "/DSourceDir=$output" "/DOutputDir=$dist" (Join-Path $project 'packaging\windows\installer.iss')
     if ($LASTEXITCODE) { throw 'Installer build failed' }
     if ($env:COMMON_APP_DEV -eq $project -and $env:COMMON_APP_DATA_MODE -eq 'portable') {

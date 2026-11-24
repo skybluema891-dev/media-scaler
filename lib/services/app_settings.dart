@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum ScaleMode { upscale, downscale, ai }
+enum ScaleMode { resize, ai }
 
 enum SizeType { multiplier, preset, custom }
 
@@ -11,13 +11,43 @@ enum VideoQuality { compact, standard, high, maximum }
 
 enum VideoCodec { h264, h265 }
 
+const resizeMultipliers = <double>[0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4];
+const aiMultipliers = [2, 3, 4];
+const sizePresets = [480, 720, 1080, 1440, 2160];
+
+String formatMultiplier(double value) =>
+    value.toString().replaceFirst(RegExp(r'\.0$'), '');
+
+typedef ConversionSettings = ({
+  ScaleMode scaleMode,
+  SizeType sizeType,
+  double resizeMultiplier,
+  int aiMultiplier,
+  int presetHeight,
+  int customWidth,
+  int customHeight,
+  NormalQuality normalQuality,
+  VideoQuality videoQuality,
+  VideoCodec videoCodec,
+  int jpegQuality,
+  bool useGpu,
+  bool sameFolder,
+  bool renameOutput,
+  String outputDirectory,
+  NormalQuality aiQuality,
+  String aiModel,
+  bool aiUseGpu,
+  int aiVideoFps,
+});
+
 class AppSettings extends ChangeNotifier {
   AppSettings._(this._prefs);
   final SharedPreferences _prefs;
 
-  ScaleMode scaleMode = ScaleMode.upscale;
+  ScaleMode scaleMode = ScaleMode.resize;
   SizeType sizeType = SizeType.multiplier;
-  int multiplier = 2;
+  double resizeMultiplier = 2;
+  int aiMultiplier = 2;
   int presetHeight = 1080;
   int customWidth = 1920;
   int customHeight = 1080;
@@ -29,11 +59,33 @@ class AppSettings extends ChangeNotifier {
   bool sameFolder = true;
   bool renameOutput = true;
   String outputDirectory = '';
-  ThemeMode themeMode = ThemeMode.system;
+  ThemeMode themeMode = ThemeMode.dark;
   NormalQuality aiQuality = NormalQuality.standard;
   String aiModel = 'photo';
   bool aiUseGpu = true;
   int aiVideoFps = 30;
+
+  ConversionSettings get conversion => (
+    scaleMode: scaleMode,
+    sizeType: sizeType,
+    resizeMultiplier: resizeMultiplier,
+    aiMultiplier: aiMultiplier,
+    presetHeight: presetHeight,
+    customWidth: customWidth,
+    customHeight: customHeight,
+    normalQuality: normalQuality,
+    videoQuality: videoQuality,
+    videoCodec: videoCodec,
+    jpegQuality: jpegQuality,
+    useGpu: useGpu,
+    sameFolder: sameFolder,
+    renameOutput: renameOutput,
+    outputDirectory: outputDirectory,
+    aiQuality: aiQuality,
+    aiModel: aiModel,
+    aiUseGpu: aiUseGpu,
+    aiVideoFps: aiVideoFps,
+  );
 
   static Future<AppSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -50,18 +102,26 @@ class AppSettings extends ChangeNotifier {
       24 => 24,
       _ => 30,
     };
-    value.scaleMode = _enumValue(
-      ScaleMode.values,
-      prefs.getString('scaleMode'),
-      ScaleMode.upscale,
-    );
+    final savedMode = prefs.getString('scaleMode');
+    value.scaleMode = savedMode == 'ai' ? ScaleMode.ai : ScaleMode.resize;
     value.sizeType = _enumValue(
       SizeType.values,
       prefs.getString('sizeType'),
       SizeType.multiplier,
     );
-    value.multiplier = prefs.getInt('multiplier') ?? 2;
-    value.presetHeight = prefs.getInt('presetHeight') ?? 1080;
+    final oldMultiplier = prefs.get('multiplier');
+    final normal = prefs.get('resizeMultiplier') ?? oldMultiplier;
+    if (normal is num && resizeMultipliers.contains(normal)) {
+      value.resizeMultiplier = normal.toDouble();
+    }
+    final ai = prefs.get('aiMultiplier') ?? oldMultiplier;
+    if (ai is num && aiMultipliers.contains(ai)) {
+      value.aiMultiplier = ai.toInt();
+    }
+    final preset = prefs.getInt('presetHeight');
+    if (preset != null && sizePresets.contains(preset)) {
+      value.presetHeight = preset;
+    }
     value.customWidth = prefs.getInt('customWidth') ?? 1920;
     value.customHeight = prefs.getInt('customHeight') ?? 1080;
     value.normalQuality = _enumValue(
@@ -87,10 +147,9 @@ class AppSettings extends ChangeNotifier {
     value.themeMode = _enumValue(
       ThemeMode.values,
       prefs.getString('themeMode'),
-      ThemeMode.system,
+      ThemeMode.dark,
     );
-    if (value.scaleMode == ScaleMode.downscale &&
-        value.sizeType == SizeType.multiplier) {
+    if (savedMode == 'downscale' && value.sizeType == SizeType.multiplier) {
       value.sizeType = SizeType.preset;
     }
     return value;
@@ -115,7 +174,8 @@ class AppSettings extends ChangeNotifier {
       _prefs.setInt('aiVideoFps', aiVideoFps),
       _prefs.setString('scaleMode', scaleMode.name),
       _prefs.setString('sizeType', sizeType.name),
-      _prefs.setInt('multiplier', multiplier),
+      _prefs.setDouble('resizeMultiplier', resizeMultiplier),
+      _prefs.setInt('aiMultiplier', aiMultiplier),
       _prefs.setInt('presetHeight', presetHeight),
       _prefs.setInt('customWidth', customWidth),
       _prefs.setInt('customHeight', customHeight),

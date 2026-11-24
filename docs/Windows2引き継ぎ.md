@@ -43,12 +43,12 @@ python -B scripts/manage_windows.py context
 | Flutter | CIで指定している Flutter 3.47.3 stable、Dart 3.13.3 |
 | C++ | Visual Studioの「C++によるデスクトップ開発」、MSVC x64、CMake、Windows SDK。Windows 1の確認環境はVisual Studio 18.10 |
 | Python | Python 3.13 x64。Windows 1は3.13.15。組み込み版も3.13.15 x64 |
-| インストーラー | Inno Setup 6または7。標準のインストール先で検出できないときは `scripts/build_windows.ps1 -Iscc <パス>` |
+| インストーラー | 深いインストール先に対応するInno Setup 7。Windows 2とCIは `./scripts/prepare_inno_windows.ps1` で公式7.1.1を準備する。準備済みの場合は再利用する。 |
 | GPU | GPUメーカーのVulkan対応ドライバー。Real-ESRGANのGPU処理とFFmpegのハードウェアエンコードを端末ごとに確認する |
 
 `flutter doctor -v`、`git --version`、`python --version`、`pwsh --version` を実行し、同じターミナルから各ツールを呼び出せることを確認する。GitHubへのpush認証はWindows 2のGit Credential Manager等で設定する。更新確認は公開Releaseを使用する。Windowsのローカルビルドに秘密値は不要。CIは `UPDATE_REPOSITORY` とGitHubが提供する `GH_TOKEN` を使う。macOSの署名・公証設定は [既存の手順](macOS正式署名と公証.md) にある。
 
-Windows 2では、Flutter 3.47.3を `tools/sdk/flutter/`、Python 3.13.15 x64を `tools/sdk/python/`、Inno Setup 6を `tools/inno/` に配置する。ローカルのテスト・ビルドはこれらを優先し、パスに含まれる日本語・空白・括弧に対応するためFlutter SDKとビルド作業領域を一時的に別々の短いドライブ名で参照する。Flutter がプラグイン用シンボリックリンクを権限上作成できない場合は、ビルドの一時領域にディレクトリジャンクションを作成して続行する。SDKと依存キャッシュは次回も使う。Windows 2で下の例を実行するときは、必要に応じて `python` を `./tools/sdk/python/python.exe` に読み替える。
+Windows 2では、Flutter 3.47.3を `tools/sdk/flutter/`、Python 3.13.15 x64を `tools/sdk/python/`、Inno Setup 7.1.1を `tools/inno-7.1.1/` から使う。旧候補の再現用に6.7.4も `tools/inno/` に保持している。ローカルのテスト・ビルドは、日本語・空白・括弧を含むパスに対応するためFlutter SDKとビルド作業領域を一時的に別々の短いドライブ名で参照する。Flutter がプラグイン用シンボリックリンクを権限上作成できない場合は、ビルドの一時領域にディレクトリジャンクションを作成して続行する。SDKと依存キャッシュは次回も使う。Windows 2で下の例を実行するときは、必要に応じて `python` を `./tools/sdk/python/python.exe` に読み替える。
 
 ## 依存復元と確認用ビルド
 
@@ -73,6 +73,8 @@ python -B scripts/manage_windows.py build --version $version --defer
 python -B scripts/manage_windows.py run --purpose 'Place accepted Windows build' --defer -- pwsh -NoProfile -File scripts/promote_local_windows.ps1 -Version $version
 python -B scripts/manage_windows.py finish --outcome success --task-id MediaScalerWindows2Acceptance
 ```
+
+ソースSHA別に保管した候補には、昇格コマンドの `-Version $version` に続けて `-SourceSha <検証したコミットの12桁または40桁>` を指定する。`-WhatIf` を加えると、候補と出力先の事前検査だけを実行する。SHA指定時は `build/candidate-<先頭12桁>/` のアプリとインストーラーを保持し、完成アプリ用のコピーで `runtime.json` の相対パスを更新する。SHAを省略した従来のコマンドは `build/candidate/` から移動する。
 
 各作業依頼の終了前に `finish` を実行する。受け入れ途中では `--outcome incomplete` を指定する。初回は `cleanup.py sweep --project <開発環境の実パス>` で候補を確認する。正常終了した実行の明示出力は `finish` が回収し、要約と容量を `logs/task-finish-*.json` に記録する。調査中の出力は共通清掃の保持記録に従う。
 
@@ -107,4 +109,4 @@ Windows 1は既存のインストール先と完成アプリにある版から�
 - エンジン単体でH.264の短い動画変換、CPU画像AI、Intel Iris Xe GraphicsでVulkanの画像／動画AIを確認した。AI動画は2フレームの合成入力を2倍に変換し、FFprobeでH.264・96×64を読み取った。
 - Windows x64のReleaseビルドとインストーラーの生成に成功した。同梱エンジンを使ったAIワーカーテストも5件通過した。候補版の画面で、合成PNGとH.264 MP4の読み込み、2倍変換、保存、更新確認を実施した。画面に完了2件が表示され、両ファイルの128×96の出力を外部ツールで読み取った。
 - 受け入れ済みのローカル配布物は `完成アプリ-(正式ビルド・配布ファイル)/Windows-1.2.5/` の `Media Scaler.exe` と `Media Scaler Setup.exe`。開発環境の元パスを一時的に参照できなくした状態で同フォルダの `Media Scaler.exe` が起動し、ユーザーデータ領域に保存した倍率設定を再読み込みした。稼働ログの保存先も同領域で確認した。
-- Windows 2で開発とローカルビルドを継続できる。次の優先作業は、インストーラーによる既存版の上書き導入と、ショートカット・旧設定の継承を別途検証すること。Windows 1の設定の取り込みは必要になった時点で行う。
+- Windows 2で開発とローカルビルドを継続できる。公開版v1.2.4・v1.2.5からの上書き、ショートカット・旧設定の継承、および実用化に向けた残件は [Windows 2受け入れ記録](Windows2受け入れ.md) を参照する。Windows 1の設定の取り込みは必要になった時点で行う。

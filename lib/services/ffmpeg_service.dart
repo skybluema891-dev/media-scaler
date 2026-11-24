@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/media_item.dart';
@@ -15,6 +16,8 @@ typedef ProgressCallback = void Function(
   Duration elapsed,
   Duration? remaining,
 );
+
+const _windowsHeapCorruption = 0xc0000374;
 
 class FfmpegMissingException implements Exception {
   const FfmpegMissingException();
@@ -131,9 +134,38 @@ class FfmpegService {
         .where((stream) => stream['codec_type'] == 'video')
         .firstOrNull;
     final format = data['format'] as Map<String, dynamic>?;
+    // Read the first frame after FFmpeg's automatic orientation handling.
+    // Container dimensions can describe the encoded, unrotated pixels.
+    final decoded = await Process.run(await ffmpegPath, [
+      '-hide_banner',
+      '-nostdin',
+      '-loglevel',
+      'info',
+      '-i',
+      path,
+      '-an',
+      '-sn',
+      '-dn',
+      '-vf',
+      'showinfo=checksum=0',
+      '-frames:v',
+      '1',
+      '-f',
+      'null',
+      '-',
+    ]);
+    final frame = RegExp(
+      r'\[Parsed_showinfo_[^\]]+\][^\r\n]*\bn:\s*0\s+[^\r\n]*?\bsar:(\d+/\d+)\s+s:(\d+)x(\d+)\b',
+    ).firstMatch(decoded.stderr as String);
+    if (decoded.exitCode != 0 || frame == null) {
+      throw const ConversionException(
+        '画像・動画の寸法を確認できませんでした。ファイル形式や破損を確認してください。',
+      );
+    }
     return MediaInfo(
-      width: _asInt(video?['width']),
-      height: _asInt(video?['height']),
+      width: int.parse(frame[2]!),
+      height: int.parse(frame[3]!),
+      sampleAspectRatio: frame[1],
       durationSeconds: _asDouble(video?['duration'] ?? format?['duration']),
       frameRate: _parseRate(video?['avg_frame_rate']),
       codec: video?['codec_name']?.toString(),
@@ -143,8 +175,6 @@ class FfmpegService {
     );
   }
 
-  int? _asInt(Object? value) =>
-      value == null ? null : int.tryParse(value.toString());
   double? _asDouble(Object? value) =>
       value == null ? null : double.tryParse(value.toString());
   double? _parseRate(Object? value) {
@@ -174,7 +204,8 @@ class FfmpegService {
 
   Future<String> convert({
     required MediaItem item,
-    required AppSettings settings,
+    required ConversionSettings settings,
+    required PixelSize outputSize,
     required ProgressCallback onProgress,
   }) async {
     if (_ffmpegPath == null) await initialize();
@@ -182,19 +213,50 @@ class FfmpegService {
     final outputPath = await _createOutputPath(item, settings);
     final duration = item.info?.durationSeconds ?? 0;
     final stopwatch = Stopwatch()..start();
-    final filter = _scaleFilter(settings);
+    final filter = _scaleFilter(settings.normalQuality, outputSize);
     final encoder = item.kind == MediaKind.video
         ? await _selectEncoder(settings)
         : null;
     final cpuEncoder = item.kind == MediaKind.video
         ? await _selectCpuEncoder(settings.videoCodec)
         : null;
-    final args = _arguments(item, outputPath, settings, filter, encoder);
+    Future<int> runEncoder(String? selectedEncoder) async {
+      if (_cancelRequested) throw const ConversionException('キャンセルしました。');
+      final args = _arguments(
+        item,
+        outputPath,
+        settings,
+        filter,
+        selectedEncoder,
+      );
+      final code = await _run(args, duration, stopwatch, onProgress);
+      if (_cancelRequested ||
+          !Platform.isWindows ||
+          selectedEncoder != 'libx265' ||
+          (code & 0xffffffff) != _windowsHeapCorruption) {
+        return code;
+      }
+      await AppLogger.write('libx265が異常終了。並列化とSIMDを抑えて再試行します。');
+      await _removePartial(outputPath);
+      if (_cancelRequested) throw const ConversionException('キャンセルしました。');
+      return _run(
+        [
+          ...args.take(args.length - 1),
+          '-x265-params',
+          'pools=none:frame-threads=1:wpp=0:asm=0',
+          outputPath,
+        ],
+        duration,
+        stopwatch,
+        onProgress,
+      );
+    }
+
     try {
       if (encoder != null) {
         await AppLogger.write('使用エンコーダー: $encoder');
       }
-      final exitCode = await _run(args, duration, stopwatch, onProgress);
+      final exitCode = await runEncoder(encoder);
       if (_cancelRequested) {
         await _removePartial(outputPath);
         throw const ConversionException('キャンセルしました。');
@@ -202,19 +264,7 @@ class FfmpegService {
       if (exitCode != 0 && encoder != null && encoder != cpuEncoder) {
         await AppLogger.write('GPUエンコード失敗。CPUへ切替: $encoder');
         await _removePartial(outputPath);
-        final retryArgs = _arguments(
-          item,
-          outputPath,
-          settings,
-          filter,
-          cpuEncoder,
-        );
-        final retryCode = await _run(
-          retryArgs,
-          duration,
-          stopwatch,
-          onProgress,
-        );
+        final retryCode = await runEncoder(cpuEncoder);
         if (_cancelRequested) throw const ConversionException('キャンセルしました。');
         if (retryCode != 0) {
           throw const ConversionException('変換に失敗しました。詳細はログを確認してください。');
@@ -285,7 +335,7 @@ class FfmpegService {
   List<String> _arguments(
     MediaItem item,
     String output,
-    AppSettings settings,
+    ConversionSettings settings,
     String filter,
     String? encoder,
   ) {
@@ -304,7 +354,7 @@ class FfmpegService {
         throw const ConversionException('選択した動画形式に対応するエンコーダーがありません。');
       }
       args.addAll(['-c:v', encoder]);
-      args.addAll(_videoQualityArgs(settings, encoder));
+      args.addAll(videoQualityArgs(settings, encoder));
       args.addAll(['-c:a', 'aac', '-b:a', '192k']);
       if (p.extension(output).toLowerCase() == '.mp4' ||
           p.extension(output).toLowerCase() == '.mov') {
@@ -315,23 +365,16 @@ class FfmpegService {
     return args;
   }
 
-  String _scaleFilter(AppSettings settings) {
-    final flags = switch (settings.normalQuality) {
+  String _scaleFilter(NormalQuality quality, PixelSize size) {
+    final flags = switch (quality) {
       NormalQuality.fast => 'bilinear',
       NormalQuality.standard => 'bicubic',
       NormalQuality.high => 'lanczos',
     };
-    if (settings.sizeType == SizeType.multiplier) {
-      return 'scale=trunc(iw*${settings.multiplier}/2)*2:trunc(ih*${settings.multiplier}/2)*2:flags=$flags';
-    }
-    if (settings.sizeType == SizeType.preset) {
-      final size = settings.presetHeight;
-      return 'scale=if(gte(iw\\,ih)\\,-2\\,$size):if(gte(iw\\,ih)\\,$size\\,-2):flags=$flags';
-    }
-    return 'scale=${settings.customWidth}:${settings.customHeight}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=$flags';
+    return 'scale=${size.width}:${size.height}:flags=$flags';
   }
 
-  Future<String> _selectEncoder(AppSettings settings) async {
+  Future<String> _selectEncoder(ConversionSettings settings) async {
     _encoders ??= await _readEncoders();
     if (settings.useGpu) {
       final candidates = settings.videoCodec == VideoCodec.h264
@@ -419,7 +462,8 @@ class FfmpegService {
     return encoder;
   }
 
-  List<String> _videoQualityArgs(AppSettings settings, String encoder) {
+  @visibleForTesting
+  List<String> videoQualityArgs(ConversionSettings settings, String encoder) {
     final crf = switch (settings.videoQuality) {
       VideoQuality.compact => 28,
       VideoQuality.standard => 23,
@@ -454,6 +498,11 @@ class FfmpegService {
         '$crf',
       ];
     }
+    if (encoder == 'hevc_qsv') {
+      // Some Intel HEVC drivers stall with the faster presets. Let the
+      // driver select its default while retaining the requested quality.
+      return ['-global_quality', '$crf'];
+    }
     if (encoder.contains('_qsv')) {
       final preset = switch (settings.normalQuality) {
         NormalQuality.fast => 'veryfast',
@@ -487,7 +536,10 @@ class FfmpegService {
     ];
   }
 
-  Future<String> _createOutputPath(MediaItem item, AppSettings settings) async {
+  Future<String> _createOutputPath(
+    MediaItem item,
+    ConversionSettings settings,
+  ) async {
     final directory = settings.sameFolder
         ? p.dirname(item.path)
         : settings.outputDirectory;

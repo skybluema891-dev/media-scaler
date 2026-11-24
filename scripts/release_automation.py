@@ -65,13 +65,18 @@ def plan():
         result = subprocess.run(['git', 'show', before + ':pubspec.yaml'], capture_output=True, text=True)
         if result.returncode == 0:
             previous = result.stdout
-    publish = should_publish(os.environ['GITHUB_EVENT_NAME'], os.environ['GITHUB_REF'],
-                             event['repository']['default_branch'], version, previous)
+    # A manual candidate run verifies packages, including on main or a tag.
+    # It never enters the release lookup, tag creation or publication path.
+    candidate = (os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch'
+                 and str(event.get('inputs', {}).get('verify_candidate', '')).lower() == 'true')
+    publish = not candidate and should_publish(
+        os.environ['GITHUB_EVENT_NAME'], os.environ['GITHUB_REF'],
+        event['repository']['default_branch'], version, previous)
     existing = api('/releases/tags/v' + version) if publish else None
     if existing and not existing['draft']:
         publish = False
     with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-        output.write(f'version={version}\npublish={str(publish).lower()}\n')
+        output.write(f'version={version}\npublish={str(publish).lower()}\ncandidate={str(candidate).lower()}\n')
     print(f'v{version}: publish={publish}')
 
 
@@ -152,8 +157,16 @@ def publish(version=None, sha=None):
     env = dict(os.environ, GH_REPO=repository)
     if not existing:
         notes = api('/releases/generate-notes', {'tag_name': tag, 'target_commitish': sha})
+        # Recovery may run from a newer checkout. Read the reviewed user notes
+        # from the exact commit that produced these artifacts.
+        reviewed = subprocess.run(
+            ['git', 'show', f'{sha}:docs/release-notes/{tag}.md'],
+            capture_output=True, encoding='utf-8')
+        body = notes['body']
+        if reviewed.returncode == 0:
+            body = reviewed.stdout.rstrip() + '\n\n' + body
         existing = api('/releases', {'tag_name': tag, 'target_commitish': sha,
-            'name': 'Media Scaler ' + tag, 'body': notes['body'], 'draft': True,
+            'name': 'Media Scaler ' + tag, 'body': body, 'draft': True,
             'prerelease': False})
     if not existing:
         raise ValueError('Created draft could not be found; refusing to publish.')

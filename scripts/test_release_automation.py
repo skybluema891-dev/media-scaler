@@ -34,6 +34,27 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn('MediaScaler-1.2.0-macos-x86_64.dmg', assets)
         self.assertIn('MediaScaler-1.2.0-windows-setup.exe', assets)
 
+    def test_manual_candidate_plan_cannot_publish_even_on_main_or_tag(self):
+        build = automation.ROOT / 'build'
+        build.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=build) as tmp:
+            root = Path(tmp)
+            (root / 'pubspec.yaml').write_text('version: 1.2.6+11\n')
+            event = {'repository': {'default_branch': 'main'},
+                     'inputs': {'verify_candidate': 'true'}}
+            (root / 'event.json').write_text(json.dumps(event))
+            for ref in ('refs/heads/windows2-full-acceptance', 'refs/heads/main', 'refs/tags/v1.2.6'):
+                output = root / 'output'
+                output.write_text('')
+                env = {'GITHUB_EVENT_PATH': str(root / 'event.json'), 'GITHUB_REF': ref,
+                       'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_OUTPUT': str(output)}
+                with self.subTest(ref=ref), patch.object(automation, 'ROOT', root), \
+                     patch.dict(automation.os.environ, env), patch.object(automation, 'api') as api:
+                    automation.plan()
+                    self.assertEqual(output.read_text().splitlines(),
+                                     ['version=1.2.6', 'publish=false', 'candidate=true'])
+                    api.assert_not_called()
+
     def test_draft_lookup_when_tag_endpoint_returns_404(self):
         draft = {'id': 123, 'tag_name': 'v1.2.0', 'draft': True}
         with patch.object(automation, 'api', side_effect=[None, [draft]]) as api:
@@ -49,17 +70,18 @@ class ReleaseTests(unittest.TestCase):
         build.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=build) as temporary:
             root = Path(temporary)
-            (root / 'pubspec.yaml').write_text('version: 1.2.0+5\n')
+            (root / 'pubspec.yaml').write_text('version: 1.2.6+11\n')
             (root / 'artifacts').mkdir()
-            names = expected_assets('1.2.0')
+            names = expected_assets('1.2.6')
             for name in names:
-                (root / 'artifacts' / name).write_bytes(b'test artifact')
+                (root / 'artifacts' / name).write_bytes(b'x')
             draft = {'draft': True, 'id': 123}
             uploaded = dict(draft, html_url='https://github.com/example/app/releases/tag/v1.2.0',
                 assets=[{'name': name, 'state': 'uploaded', 'size': 13}
                         for name in names + ['SHA256SUMS.txt', 'latest.json']])
+            fixture = json.loads((automation.ROOT / 'test/fixtures/latest-1.2.6.json').read_text())
             with patch.object(automation, 'ROOT', root), \
-                 patch.dict(automation.os.environ, {'GITHUB_REPOSITORY': 'example/app'}), \
+                 patch.dict(automation.os.environ, {'GITHUB_REPOSITORY': 'skybluema891-dev/media-scaler'}), \
                  patch.object(automation.subprocess, 'check_output', return_value='abc\n'), \
                  patch.object(automation.subprocess, 'run') as run, \
                  patch.object(automation, 'release_for_tag', return_value=draft), \
@@ -69,8 +91,7 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(run.call_count, 1)
                 manifest = json.loads(
                     (root / 'artifacts' / 'latest.json').read_text())
-                self.assertEqual(manifest['tag_name'], 'v1.2.0')
-                self.assertEqual(len(manifest['assets']), 5)
+                self.assertEqual(manifest, fixture)
                 self.assertEqual(api.call_args_list[1].args, ('/releases/123',))
                 api.assert_called_with('/releases/123', {'draft': False, 'make_latest': 'legacy'}, 'PATCH')
 

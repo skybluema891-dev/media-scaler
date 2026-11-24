@@ -6,6 +6,8 @@ enum MediaKind { image, video }
 
 enum JobState { waiting, processing, completed, error, cancelled }
 
+typedef PixelSize = ({int width, int height});
+
 class MediaInfo {
   const MediaInfo({
     this.width,
@@ -14,6 +16,7 @@ class MediaInfo {
     this.frameRate,
     this.codec,
     this.format,
+    this.sampleAspectRatio,
   });
   final int? width;
   final int? height;
@@ -21,6 +24,12 @@ class MediaInfo {
   final double? frameRate;
   final String? codec;
   final String? format;
+  final String? sampleAspectRatio;
+
+  PixelSize? get pixels => switch ((width, height)) {
+    (final int w, final int h) when w > 0 && h > 0 => (width: w, height: h),
+    _ => null,
+  };
 }
 
 class MediaItem {
@@ -29,6 +38,9 @@ class MediaItem {
   final MediaKind kind;
   final int sizeBytes;
   MediaInfo? info;
+  bool analyzing = false;
+  String? analysisError;
+  PixelSize? plannedOutput;
   JobState state = JobState.waiting;
   double progress = 0;
   Duration elapsed = Duration.zero;

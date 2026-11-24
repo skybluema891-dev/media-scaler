@@ -6,11 +6,13 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
+import '../app_theme.dart';
 import '../models/media_item.dart';
 import '../services/app_logger.dart';
 import '../services/app_settings.dart';
 import '../services/ffmpeg_service.dart';
 import '../services/ai_service.dart';
+import '../services/resize_dimensions.dart';
 import 'preview_dialog.dart';
 import 'update_button.dart';
 
@@ -77,7 +79,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void _message(String text, {bool error = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(text),
+        content: Text(
+          text,
+          style: error
+              ? TextStyle(color: Theme.of(context).colorScheme.onError)
+              : null,
+        ),
         backgroundColor: error ? Theme.of(context).colorScheme.error : null,
       ),
     );
@@ -114,7 +121,7 @@ class _HomeScreenState extends State<HomeScreen> {
         continue;
       }
       if (existing.add(p.canonicalize(path))) {
-        additions.add(MediaItem(path, kind));
+        additions.add(MediaItem(path, kind)..analyzing = true);
       }
     }
     if (additions.isEmpty) {
@@ -126,14 +133,19 @@ class _HomeScreenState extends State<HomeScreen> {
       _selected ??= additions.first;
     });
     for (final item in additions) {
+      if (!mounted) return;
       try {
         item.info = await _ffmpeg.probe(item.path);
       } catch (error) {
-        item.errorMessage = error.toString();
+        item.analysisError = error.toString();
+      } finally {
+        item.analyzing = false;
       }
       if (mounted) setState(() {});
     }
-    if (unsupported > 0) _message('$unsupported 件の未対応ファイルを除外しました。');
+    if (mounted && unsupported > 0) {
+      _message('$unsupported 件の未対応ファイルを除外しました。');
+    }
   }
 
   Future<void> _chooseOutputFolder() async {
@@ -142,7 +154,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ? null
           : settings.outputDirectory,
     );
-    if (path == null) return;
+    if (path == null || !mounted || _processing) return;
     settings.outputDirectory = path;
     settings.sameFolder = false;
     await settings.save();
@@ -175,42 +187,64 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  bool _readCustomSize() {
+    final width = int.tryParse(_widthController.text);
+    final height = int.tryParse(_heightController.text);
+    if (width == null || height == null || !validCustomSize(width, height)) {
+      return false;
+    }
+    settings.customWidth = width;
+    settings.customHeight = height;
+    return true;
+  }
+
+  void _customSizeChanged(String _) {
+    final valid = _readCustomSize();
+    setState(() {});
+    if (valid) unawaited(settings.save());
+  }
+
   Future<void> _startAll() async {
     if (_processing || _items.isEmpty) return;
-    if (settings.sizeType == SizeType.custom) {
-      final width = int.tryParse(_widthController.text);
-      final height = int.tryParse(_heightController.text);
-      if (width == null || height == null || width < 2 || height < 2) {
-        _message('カスタム解像度は2以上の整数で入力してください。', error: true);
-        return;
-      }
-      settings.customWidth = width;
-      settings.customHeight = height;
+    if (_items.any((item) => item.analyzing)) {
+      _message('ファイルの解析が終わってから変換を開始してください。');
+      return;
+    }
+    if (settings.sizeType == SizeType.custom && !_readCustomSize()) {
+      _message('幅・高さは2以上の有効な整数で入力してください。', error: true);
+      return;
     }
     if (!settings.sameFolder && settings.outputDirectory.isEmpty) {
       _message('保存先フォルダを選択してください。', error: true);
       return;
     }
-    await settings.save();
+    final job = settings.conversion;
     setState(() {
       _processing = true;
       _cancelRequested = false;
+      _stage = '';
       for (final item in _items) {
-        if (item.state != JobState.processing) {
-          item.state = JobState.waiting;
-          item.progress = 0;
-          item.errorMessage = null;
-        }
+        item.state = JobState.waiting;
+        item.progress = 0;
+        item.errorMessage = null;
+        item.outputPath = null;
+        final source = item.info?.pixels;
+        item.plannedOutput = job.scaleMode == ScaleMode.resize && source != null
+            ? resizeDimensions(source, job, kind: item.kind)
+            : null;
       }
     });
     for (final item in _items) {
-      if (_cancelRequested) break;
+      if (!mounted || _cancelRequested) break;
       setState(() {
         item.state = JobState.processing;
         _selected = item;
       });
       try {
-        item.info ??= await _ffmpeg.probe(item.path);
+        if (item.info == null) {
+          item.info = await _ffmpeg.probe(item.path);
+          item.analysisError = null;
+        }
         if (_cancelRequested) throw const ConversionException('キャンセルしました。');
         void progressUpdate(
           double progress,
@@ -225,27 +259,34 @@ class _HomeScreenState extends State<HomeScreen> {
           });
         }
 
-        final output = settings.scaleMode == ScaleMode.ai
+        if (job.scaleMode == ScaleMode.resize) {
+          final source = item.info?.pixels;
+          item.plannedOutput ??= source == null
+              ? null
+              : resizeDimensions(source, job, kind: item.kind);
+          if (item.plannedOutput == null) {
+            throw const ConversionException(
+              '仕上がりサイズを作れません。倍率を上げるか、より大きいサイズを指定してください。',
+            );
+          }
+        }
+        final output = job.scaleMode == ScaleMode.ai
             ? await _ai.convert(
                 item: item,
-                settings: settings,
+                settings: job,
                 ffmpeg: _ffmpeg,
                 onProgress: progressUpdate,
                 onStage: (value) {
-                  if (mounted) setState(() => _stage = value);
+                  if (mounted && _stage != value) {
+                    setState(() => _stage = value);
+                  }
                 },
               )
             : await _ffmpeg.convert(
                 item: item,
-                settings: settings,
-                onProgress: (progress, elapsed, remaining) {
-                  if (!mounted) return;
-                  setState(() {
-                    item.progress = progress;
-                    item.elapsed = elapsed;
-                    item.remaining = remaining;
-                  });
-                },
+                settings: job,
+                outputSize: item.plannedOutput!,
+                onProgress: progressUpdate,
               );
         if (!mounted) return;
         setState(() {
@@ -269,22 +310,20 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (!mounted) return;
     setState(() => _processing = false);
-    final errors = _items.where((item) => item.state == JobState.error).length;
-    final cancelled = _items.any((item) => item.state == JobState.cancelled);
-    if (errors == 0 && !cancelled) _message('処理が完了しました。');
   }
 
   Future<void> _cancel() async {
     setState(() {
       _cancelRequested = true;
       _stage = '停止しています…';
+      for (final item in _items.where(
+        (item) => item.state == JobState.waiting,
+      )) {
+        item.state = JobState.cancelled;
+      }
     });
     await _ai.cancel();
     await _ffmpeg.cancel();
-    for (final item in _items.where((item) => item.state == JobState.waiting)) {
-      item.state = JobState.cancelled;
-    }
-    if (mounted) setState(() {});
   }
 
   Future<void> _openLog() async {
@@ -301,6 +340,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _preview() async {
     final item = _selected;
     if (_processing || item == null || item.kind != MediaKind.image) return;
+    if (settings.sizeType == SizeType.custom && !_readCustomSize()) {
+      _message('幅・高さは2以上の有効な整数で入力してください。', error: true);
+      return;
+    }
+    final job = settings.conversion;
     setState(() {
       _processing = true;
       _cancelRequested = false;
@@ -312,18 +356,24 @@ class _HomeScreenState extends State<HomeScreen> {
       final previewPath = directory.path;
       final output = await _ai.convert(
         item: item,
-        settings: settings,
+        settings: job,
         ffmpeg: _ffmpeg,
         preview: true,
         previewDirectory: previewPath,
         onProgress: (_, _, _) {},
         onStage: (stage) {
-          if (mounted) setState(() => _stage = stage);
+          if (mounted && _stage != stage) setState(() => _stage = stage);
         },
       );
       if (mounted && !_cancelRequested) {
         await showDialog<void>(
           context: context,
+          // On Windows, expose the comparison route without overlapping the
+          // outgoing and incoming accessibility trees during a transition.
+          animationStyle: Platform.isWindows
+              ? AnimationStyle.noAnimation
+              : null,
+          requestFocus: true,
           builder: (_) => PreviewDialog(
             original: p.join(previewPath, 'original.png'),
             result: output,
@@ -349,15 +399,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     return Scaffold(
       appBar: AppBar(
-        title: const Column(
+        toolbarHeight: 56 * MediaQuery.textScalerOf(context).scale(1),
+        titleSpacing: 20,
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Media Scaler'),
             Text(
-              '画像・動画をかんたん拡大／縮小',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+              'Media Scaler',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleLarge,
+            ),
+            Text(
+              '画像・動画のサイズ変換・高画質化',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall,
             ),
           ],
         ),
@@ -385,57 +446,100 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final list = _fileArea();
-          final panel = _settingsPanel();
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: constraints.maxWidth >= 900
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(flex: 3, child: list),
-                      const SizedBox(width: 16),
-                      SizedBox(width: 360, child: panel),
-                    ],
-                  )
-                : Column(
-                    children: [
-                      Expanded(child: list),
-                      const SizedBox(height: 12),
-                      SizedBox(height: 380, child: panel),
-                    ],
-                  ),
-          );
-        },
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: theme.brightness == Brightness.dark
+              ? AppTheme.darkBackground
+              : null,
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final list = _fileArea();
+            final panel = _settingsPanel();
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: constraints.maxWidth >= 900
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(flex: 3, child: list),
+                        const SizedBox(width: 16),
+                        SizedBox(width: 360, child: panel),
+                      ],
+                    )
+                  : SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          SizedBox(
+                            height: (constraints.maxHeight * .5).clamp(
+                              300.0,
+                              440.0,
+                            ),
+                            child: list,
+                          ),
+                          const SizedBox(height: 12),
+                          panel,
+                        ],
+                      ),
+                    ),
+            );
+          },
+        ),
       ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '${_items.length} ファイル　完了 ${_items.where((e) => e.state == JobState.completed).length} 件',
-                ),
-              ),
-              if (_processing)
-                OutlinedButton.icon(
-                  onPressed: _cancel,
-                  icon: const Icon(Icons.stop_circle_outlined),
-                  label: const Text('キャンセル'),
-                ),
-              const SizedBox(width: 12),
-              FilledButton.icon(
-                onPressed: !_processing && _items.isNotEmpty ? _startAll : null,
-                icon: const Icon(Icons.play_arrow),
-                label: const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Text('すべて変換開始'),
-                ),
-              ),
-            ],
+      bottomNavigationBar: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerLow,
+          border: Border(top: BorderSide(color: colors.outlineVariant)),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: LayoutBuilder(
+              builder: (context, box) {
+                final count = Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    '${_items.length} ファイル　完了 ${_items.where((e) => e.state == JobState.completed).length} 件',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                );
+                final buttons = [
+                  OutlinedButton.icon(
+                    onPressed: _processing && !_cancelRequested
+                        ? _cancel
+                        : null,
+                    icon: const Icon(Icons.stop_circle_outlined),
+                    label: const Text('キャンセル'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: !_processing && _items.isNotEmpty
+                        ? _startAll
+                        : null,
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('すべて変換開始'),
+                  ),
+                ];
+                if (box.maxWidth <
+                    420 * MediaQuery.textScalerOf(context).scale(1)) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      count,
+                      Wrap(spacing: 8, children: buttons),
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: count),
+                    buttons.first,
+                    const SizedBox(width: 8),
+                    buttons.last,
+                  ],
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -459,26 +563,32 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? Theme.of(context).colorScheme.primaryContainer
                   : Theme.of(context).colorScheme.surfaceContainerLow,
               padding: const EdgeInsets.all(16),
-              child: Row(
+              child: OverflowBar(
+                alignment: MainAxisAlignment.spaceBetween,
+                overflowAlignment: OverflowBarAlignment.start,
+                overflowSpacing: 2,
                 children: [
-                  Expanded(
-                    child: Text(
-                      _dragging ? 'ここにドロップしてください' : 'ファイル一覧',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
+                  Text(
+                    _dragging ? 'ここにドロップしてください' : 'ファイル一覧',
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
-                  if (_items.isNotEmpty) ...[
-                    TextButton.icon(
-                      onPressed: _processing ? null : _clearItems,
-                      icon: const Icon(Icons.delete_sweep_outlined),
-                      label: const Text('一覧を空にする'),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  OutlinedButton.icon(
-                    onPressed: _processing ? null : _pickFiles,
-                    icon: const Icon(Icons.add_photo_alternate_outlined),
-                    label: const Text('画像・動画を追加'),
+                  Wrap(
+                    spacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (_items.isNotEmpty) ...[
+                        TextButton.icon(
+                          onPressed: _processing ? null : _clearItems,
+                          icon: const Icon(Icons.delete_sweep_outlined),
+                          label: const Text('一覧を空にする'),
+                        ),
+                      ],
+                      OutlinedButton.icon(
+                        onPressed: _processing ? null : _pickFiles,
+                        icon: const Icon(Icons.add_photo_alternate_outlined),
+                        label: const Text('画像・動画を追加'),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -499,29 +609,113 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _emptyDropArea() => InkWell(
-    onTap: _pickFiles,
-    child: const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.file_upload_outlined, size: 54),
-          SizedBox(height: 12),
-          Text('画像・動画をここへドラッグ＆ドロップ'),
-          SizedBox(height: 4),
-          Text('または上の「画像・動画を追加」を押します'),
-        ],
+  Widget _emptyDropArea() {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Material(
+        color: _dragging
+            ? colors.secondaryContainer
+            : colors.surfaceContainerLow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(
+            color: _dragging ? colors.primary : colors.outlineVariant,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: _pickFiles,
+          child: Center(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.file_upload_outlined,
+                      size: 36,
+                      color: colors.onSurfaceVariant,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      '画像・動画をここへドラッグ＆ドロップ',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'または上の「画像・動画を追加」を押します',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
-    ),
-  );
+    );
+  }
+
+  String? _sizeSummary(MediaItem item) {
+    final useCurrentSettings = !_processing && item.state == JobState.waiting;
+    if (useCurrentSettings && settings.scaleMode != ScaleMode.resize)
+      return null;
+    if (item.analyzing) return '寸法を解析中…';
+    if (item.analysisError != null) return '寸法を取得できませんでした';
+    final source = item.info?.pixels;
+    if (source == null) return null;
+    final input = '${source.width}×${source.height}';
+    if (useCurrentSettings &&
+        settings.sizeType == SizeType.custom &&
+        !validCustomSize(
+          int.tryParse(_widthController.text) ?? 0,
+          int.tryParse(_heightController.text) ?? 0,
+        )) {
+      return '$input　幅・高さを有効な整数で入力';
+    }
+    final output = useCurrentSettings
+        ? resizeDimensions(source, settings.conversion, kind: item.kind)
+        : item.plannedOutput;
+    if (output == null) {
+      return useCurrentSettings ? '$input　倍率か仕上がりサイズを変更' : null;
+    }
+    final dw = output.width - source.width;
+    final dh = output.height - source.height;
+    final direction = switch ((dw, dh)) {
+      (0, 0) => '同じサイズ',
+      (var w, var h) when w.abs() <= 1 && h.abs() <= 1 => 'サイズ調整',
+      (>= 0, >= 0) => '拡大',
+      (<= 0, <= 0) => '縮小',
+      _ => 'サイズ調整',
+    };
+    return '$input → ${output.width}×${output.height}　$direction';
+  }
 
   Widget _itemTile(MediaItem item) {
+    final colors = Theme.of(context).colorScheme;
+    final dark = colors.brightness == Brightness.dark;
+    final details =
+        '${item.kind == MediaKind.image ? '画像' : '動画'} ・ ${formatBytes(item.sizeBytes)}';
+    final size = _sizeSummary(item);
     final status = switch (item.state) {
-      JobState.waiting => ('待機中', Icons.schedule, Colors.grey),
-      JobState.processing => ('処理中', Icons.sync, Colors.blue),
-      JobState.completed => ('完了', Icons.check_circle, Colors.green),
-      JobState.error => ('エラー', Icons.error, Colors.red),
-      JobState.cancelled => ('キャンセル', Icons.cancel, Colors.orange),
+      JobState.waiting => ('待機中', Icons.schedule, colors.onSurfaceVariant),
+      JobState.processing => ('処理中', Icons.sync, colors.primary),
+      JobState.completed => (
+        '完了',
+        Icons.check_circle,
+        dark ? const Color(0xFF9CC4AC) : const Color(0xFF286444),
+      ),
+      JobState.error => ('エラー', Icons.error, colors.error),
+      JobState.cancelled => (
+        'キャンセル',
+        Icons.cancel,
+        dark ? const Color(0xFFD8BC8E) : const Color(0xFF715124),
+      ),
     };
     return ListTile(
       key: ValueKey(item.path),
@@ -543,28 +737,36 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Icon(Icons.movie_outlined, size: 34),
             ),
       title: Text(item.fileName, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '${item.kind == MediaKind.image ? '画像' : '動画'} ・ ${formatBytes(item.sizeBytes)}',
-          ),
-          if (item.state == JobState.processing) ...[
-            const SizedBox(height: 4),
-            LinearProgressIndicator(value: item.progress),
-            Text(
-              '${(item.progress * 100).toStringAsFixed(0)}% ・ 経過 ${formatDuration(item.elapsed)}${item.remaining == null ? '' : ' ・ 残り約 ${formatDuration(item.remaining!)}'}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+      subtitle: Semantics(
+        container: true,
+        excludeSemantics: true,
+        label: size == null ? details : '$details　$size',
+        value: item.state == JobState.processing
+            ? '${(item.progress * 100).round()}% ・ 経過 ${formatDuration(item.elapsed)}${item.remaining == null ? '' : ' ・ 残り約 ${formatDuration(item.remaining!)}'}'
+            : item.errorMessage ?? status.$1,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(details),
+            if (size != null)
+              Text(size, style: Theme.of(context).textTheme.bodySmall),
+            if (item.state == JobState.processing) ...[
+              const SizedBox(height: 4),
+              LinearProgressIndicator(value: item.progress),
+              Text(
+                '${(item.progress * 100).toStringAsFixed(0)}% ・ 経過 ${formatDuration(item.elapsed)}${item.remaining == null ? '' : ' ・ 残り約 ${formatDuration(item.remaining!)}'}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+            if (item.errorMessage != null && item.state == JobState.error)
+              Text(
+                item.errorMessage!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
           ],
-          if (item.errorMessage != null && item.state == JobState.error)
-            Text(
-              item.errorMessage!,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-        ],
+        ),
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -587,6 +789,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final info = item.info;
     final values = <String>[
       if (info?.width != null) '${info!.width} × ${info.height}',
+      if (info?.sampleAspectRatio case final String ratio
+          when ratio != '1/1' && ratio != '0/1')
+        '画素比 ${ratio.replaceAll('/', ':')}',
       if (item.kind == MediaKind.video && info?.frameRate != null)
         '${info!.frameRate!.toStringAsFixed(2)} fps',
       if (item.kind == MediaKind.video && info?.durationSeconds != null)
@@ -601,7 +806,8 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.all(12),
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       child: Text(
-        values.isEmpty ? 'ファイル情報を取得中…' : values.join('　・　'),
+        item.analysisError ??
+            (values.isEmpty ? 'ファイル情報を取得中…' : values.join('　・　')),
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       ),
@@ -617,6 +823,27 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Text('処理設定', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 14),
+            SegmentedButton<ScaleMode>(
+              segments: const [
+                ButtonSegment(value: ScaleMode.resize, label: Text('サイズ変換')),
+                ButtonSegment(value: ScaleMode.ai, label: Text('AI高画質化')),
+              ],
+              selected: {settings.scaleMode},
+              onSelectionChanged: _processing
+                  ? null
+                  : (value) {
+                      setState(() => settings.scaleMode = value.first);
+                      unawaited(settings.save());
+                    },
+            ),
+            const SizedBox(height: 14),
+            if (settings.scaleMode == ScaleMode.resize) ...[
+              Text(
+                '共通設定に合わせて、ファイルごとに拡大・縮小します。同じサイズでも再保存します。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+            ],
             if (settings.scaleMode == ScaleMode.ai) ...[
               Text(_modelStatus, style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 10),
@@ -704,55 +931,26 @@ class _HomeScreenState extends State<HomeScreen> {
                 icon: const Icon(Icons.compare),
                 label: const Text('画像のAI比較プレビュー'),
               ),
-              if (_processing) Text(_stage),
+              Text(_processing ? _stage : '待機中'),
               const SizedBox(height: 14),
             ],
-            SegmentedButton<ScaleMode>(
-              segments: const [
-                ButtonSegment(value: ScaleMode.ai, label: Text('AI')),
-                ButtonSegment(
-                  value: ScaleMode.upscale,
-                  label: Text('拡大'),
-                  icon: Icon(Icons.zoom_out_map),
-                ),
-                ButtonSegment(
-                  value: ScaleMode.downscale,
-                  label: Text('縮小'),
-                  icon: Icon(Icons.zoom_in_map),
-                ),
-              ],
-              selected: {settings.scaleMode},
-              onSelectionChanged: _processing
-                  ? null
-                  : (value) {
-                      setState(() {
-                        settings.scaleMode = value.first;
-                        if (settings.scaleMode == ScaleMode.downscale &&
-                            settings.sizeType == SizeType.multiplier) {
-                          settings.sizeType = SizeType.preset;
-                        }
-                      });
-                      unawaited(settings.save());
-                    },
-            ),
-            const SizedBox(height: 14),
             DropdownButtonFormField<SizeType>(
               key: ValueKey(settings.sizeType),
               initialValue: settings.sizeType,
+              isExpanded: true,
               decoration: const InputDecoration(labelText: 'サイズの決め方'),
-              items: [
-                if (settings.scaleMode != ScaleMode.downscale)
-                  const DropdownMenuItem(
-                    value: SizeType.multiplier,
-                    child: Text('倍率で指定'),
-                  ),
-                const DropdownMenuItem(
-                  value: SizeType.preset,
-                  child: Text('一般的な解像度から選ぶ'),
+              items: const [
+                DropdownMenuItem(
+                  value: SizeType.multiplier,
+                  child: Text('倍率で指定'),
                 ),
-                const DropdownMenuItem(
+                DropdownMenuItem(
+                  value: SizeType.preset,
+                  child: Text('プリセットから選ぶ'),
+                ),
+                DropdownMenuItem(
                   value: SizeType.custom,
-                  child: Text('横幅・高さを入力'),
+                  child: Text('幅・高さで指定'),
                 ),
               ],
               onChanged: _processing
@@ -768,6 +966,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 12),
             DropdownButtonFormField<NormalQuality>(
               initialValue: settings.normalQuality,
+              isExpanded: true,
               decoration: const InputDecoration(
                 labelText: '変換のきれいさ',
                 helperText: '高品質ほど処理に時間がかかります',
@@ -796,6 +995,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 DropdownButtonFormField<VideoQuality>(
                   initialValue: settings.videoQuality,
+                  isExpanded: true,
                   decoration: const InputDecoration(labelText: '動画品質'),
                   items: const [
                     DropdownMenuItem(
@@ -826,6 +1026,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 10),
                 DropdownButtonFormField<VideoCodec>(
                   initialValue: settings.videoCodec,
+                  isExpanded: true,
                   decoration: const InputDecoration(labelText: '動画形式'),
                   items: const [
                     DropdownMenuItem(
@@ -861,6 +1062,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             Text('JPEG画像の品質：${settings.jpegQuality}'),
             Slider(
+              // On Windows, replace the slider and its value-indicator overlay
+              // together when disabling it. The AX bridge removes the old
+              // parent's subtree before attaching the new one.
+              key: Theme.of(context).platform == TargetPlatform.windows
+                  ? ValueKey(_processing)
+                  : null,
               value: settings.jpegQuality.toDouble(),
               min: 1,
               max: 100,
@@ -877,6 +1084,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 12),
             DropdownButtonFormField<bool>(
               initialValue: settings.renameOutput,
+              isExpanded: true,
               decoration: const InputDecoration(labelText: 'タイトル（ファイル名）の変更'),
               items: const [
                 DropdownMenuItem(value: true, child: Text('変更OK（サイズを付ける）')),
@@ -939,19 +1147,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _sizeControls() {
     if (settings.sizeType == SizeType.multiplier) {
-      return DropdownButtonFormField<int>(
-        initialValue: settings.multiplier,
-        decoration: const InputDecoration(labelText: '拡大倍率'),
-        items: const [
-          DropdownMenuItem(value: 2, child: Text('2倍')),
-          DropdownMenuItem(value: 3, child: Text('3倍')),
-          DropdownMenuItem(value: 4, child: Text('4倍')),
+      final ai = settings.scaleMode == ScaleMode.ai;
+      return DropdownButtonFormField<num>(
+        key: ValueKey(settings.scaleMode),
+        initialValue: ai ? settings.aiMultiplier : settings.resizeMultiplier,
+        isExpanded: true,
+        decoration: InputDecoration(labelText: ai ? 'AIの倍率' : '倍率'),
+        items: [
+          for (final value in ai ? aiMultipliers : resizeMultipliers)
+            DropdownMenuItem(
+              value: value,
+              child: Text('${formatMultiplier(value.toDouble())}倍'),
+            ),
         ],
         onChanged: _processing
             ? null
             : (value) {
                 if (value == null) return;
-                setState(() => settings.multiplier = value);
+                setState(() {
+                  if (ai) {
+                    settings.aiMultiplier = value.toInt();
+                  } else {
+                    settings.resizeMultiplier = value.toDouble();
+                  }
+                });
                 unawaited(settings.save());
               },
       );
@@ -959,15 +1178,15 @@ class _HomeScreenState extends State<HomeScreen> {
     if (settings.sizeType == SizeType.preset) {
       return DropdownButtonFormField<int>(
         initialValue: settings.presetHeight,
+        isExpanded: true,
         decoration: const InputDecoration(
           labelText: '仕上がり解像度',
-          helperText: '縦向き素材にも自動対応します',
+          helperText: '短辺を基準に、縦横比を保って調整します',
+          helperMaxLines: 3,
         ),
-        items: const [
-          DropdownMenuItem(value: 720, child: Text('720p（軽量）')),
-          DropdownMenuItem(value: 1080, child: Text('1080p（フルHD）')),
-          DropdownMenuItem(value: 1440, child: Text('1440p（高精細）')),
-          DropdownMenuItem(value: 2160, child: Text('2160p（4K）')),
+        items: [
+          for (final value in sizePresets)
+            DropdownMenuItem(value: value, child: Text('${value}p')),
         ],
         onChanged: _processing
             ? null
@@ -978,27 +1197,39 @@ class _HomeScreenState extends State<HomeScreen> {
               },
       );
     }
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: TextField(
-            controller: _widthController,
-            enabled: !_processing,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: '横幅 (px)'),
-          ),
+        Text(
+          '縦横比を保って、指定した幅・高さの枠に収めます。',
+          style: Theme.of(context).textTheme.bodySmall,
         ),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 8),
-          child: Text('×'),
-        ),
-        Expanded(
-          child: TextField(
-            controller: _heightController,
-            enabled: !_processing,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: '高さ (px)'),
-          ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _widthController,
+                enabled: !_processing,
+                onChanged: _customSizeChanged,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: '横幅 (px)'),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8),
+              child: Text('×'),
+            ),
+            Expanded(
+              child: TextField(
+                controller: _heightController,
+                enabled: !_processing,
+                onChanged: _customSizeChanged,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: '高さ (px)'),
+              ),
+            ),
+          ],
         ),
       ],
     );
