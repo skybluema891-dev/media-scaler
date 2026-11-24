@@ -134,9 +134,38 @@ class FfmpegService {
         .where((stream) => stream['codec_type'] == 'video')
         .firstOrNull;
     final format = data['format'] as Map<String, dynamic>?;
+    // Read the first frame after FFmpeg's automatic orientation handling.
+    // Container dimensions can describe the encoded, unrotated pixels.
+    final decoded = await Process.run(await ffmpegPath, [
+      '-hide_banner',
+      '-nostdin',
+      '-loglevel',
+      'info',
+      '-i',
+      path,
+      '-an',
+      '-sn',
+      '-dn',
+      '-vf',
+      'showinfo=checksum=0',
+      '-frames:v',
+      '1',
+      '-f',
+      'null',
+      '-',
+    ]);
+    final frame = RegExp(
+      r'\[Parsed_showinfo_[^\]]+\][^\r\n]*\bn:\s*0\s+[^\r\n]*?\bsar:(\d+/\d+)\s+s:(\d+)x(\d+)\b',
+    ).firstMatch(decoded.stderr as String);
+    if (decoded.exitCode != 0 || frame == null) {
+      throw const ConversionException(
+        '画像・動画の寸法を確認できませんでした。ファイル形式や破損を確認してください。',
+      );
+    }
     return MediaInfo(
-      width: _asInt(video?['width']),
-      height: _asInt(video?['height']),
+      width: int.parse(frame[2]!),
+      height: int.parse(frame[3]!),
+      sampleAspectRatio: frame[1],
       durationSeconds: _asDouble(video?['duration'] ?? format?['duration']),
       frameRate: _parseRate(video?['avg_frame_rate']),
       codec: video?['codec_name']?.toString(),
@@ -146,8 +175,6 @@ class FfmpegService {
     );
   }
 
-  int? _asInt(Object? value) =>
-      value == null ? null : int.tryParse(value.toString());
   double? _asDouble(Object? value) =>
       value == null ? null : double.tryParse(value.toString());
   double? _parseRate(Object? value) {
@@ -177,7 +204,8 @@ class FfmpegService {
 
   Future<String> convert({
     required MediaItem item,
-    required AppSettings settings,
+    required ConversionSettings settings,
+    required PixelSize outputSize,
     required ProgressCallback onProgress,
   }) async {
     if (_ffmpegPath == null) await initialize();
@@ -185,7 +213,7 @@ class FfmpegService {
     final outputPath = await _createOutputPath(item, settings);
     final duration = item.info?.durationSeconds ?? 0;
     final stopwatch = Stopwatch()..start();
-    final filter = _scaleFilter(settings);
+    final filter = _scaleFilter(settings.normalQuality, outputSize);
     final encoder = item.kind == MediaKind.video
         ? await _selectEncoder(settings)
         : null;
@@ -307,7 +335,7 @@ class FfmpegService {
   List<String> _arguments(
     MediaItem item,
     String output,
-    AppSettings settings,
+    ConversionSettings settings,
     String filter,
     String? encoder,
   ) {
@@ -337,23 +365,16 @@ class FfmpegService {
     return args;
   }
 
-  String _scaleFilter(AppSettings settings) {
-    final flags = switch (settings.normalQuality) {
+  String _scaleFilter(NormalQuality quality, PixelSize size) {
+    final flags = switch (quality) {
       NormalQuality.fast => 'bilinear',
       NormalQuality.standard => 'bicubic',
       NormalQuality.high => 'lanczos',
     };
-    if (settings.sizeType == SizeType.multiplier) {
-      return 'scale=trunc(iw*${settings.multiplier}/2)*2:trunc(ih*${settings.multiplier}/2)*2:flags=$flags';
-    }
-    if (settings.sizeType == SizeType.preset) {
-      final size = settings.presetHeight;
-      return 'scale=if(gte(iw\\,ih)\\,-2\\,$size):if(gte(iw\\,ih)\\,$size\\,-2):flags=$flags';
-    }
-    return 'scale=${settings.customWidth}:${settings.customHeight}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=$flags';
+    return 'scale=${size.width}:${size.height}:flags=$flags';
   }
 
-  Future<String> _selectEncoder(AppSettings settings) async {
+  Future<String> _selectEncoder(ConversionSettings settings) async {
     _encoders ??= await _readEncoders();
     if (settings.useGpu) {
       final candidates = settings.videoCodec == VideoCodec.h264
@@ -442,7 +463,7 @@ class FfmpegService {
   }
 
   @visibleForTesting
-  List<String> videoQualityArgs(AppSettings settings, String encoder) {
+  List<String> videoQualityArgs(ConversionSettings settings, String encoder) {
     final crf = switch (settings.videoQuality) {
       VideoQuality.compact => 28,
       VideoQuality.standard => 23,
@@ -515,7 +536,10 @@ class FfmpegService {
     ];
   }
 
-  Future<String> _createOutputPath(MediaItem item, AppSettings settings) async {
+  Future<String> _createOutputPath(
+    MediaItem item,
+    ConversionSettings settings,
+  ) async {
     final directory = settings.sameFolder
         ? p.dirname(item.path)
         : settings.outputDirectory;

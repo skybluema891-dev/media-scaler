@@ -14,13 +14,13 @@ void main() {
 
       for (final normalQuality in NormalQuality.values) {
         settings.normalQuality = normalQuality;
-        expect(service.videoQualityArgs(settings, 'hevc_qsv'), [
+        expect(service.videoQualityArgs(settings.conversion, 'hevc_qsv'), [
           '-global_quality',
           '19',
         ]);
       }
       settings.normalQuality = NormalQuality.standard;
-      expect(service.videoQualityArgs(settings, 'h264_qsv'), [
+      expect(service.videoQualityArgs(settings.conversion, 'h264_qsv'), [
         '-preset',
         'faster',
         '-global_quality',

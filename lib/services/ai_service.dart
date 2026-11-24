@@ -66,7 +66,7 @@ class AiService {
 
   Future<String> convert({
     required MediaItem item,
-    required AppSettings settings,
+    required ConversionSettings settings,
     required FfmpegService ffmpeg,
     required ProgressCallback onProgress,
     void Function(String)? onStage,
@@ -126,7 +126,7 @@ class AiService {
         '--model',
         settings.aiModel,
         '--scale',
-        '${settings.multiplier}',
+        '${settings.aiMultiplier}',
         '--size',
         settings.sizeType.name,
         '--width',
