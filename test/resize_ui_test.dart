@@ -68,7 +68,12 @@ void main() {
     for (final preset in sizePresets) {
       expect(find.text('${preset}p'), findsWidgets);
     }
-    await tap(find.text('480p').hitTestable().last);
+    // Each option is selectable and restored from the persistence layer.
+    for (final preset in [2160, 1440, 1080, 720, 480]) {
+      await tap(find.text('${preset}p').hitTestable().last);
+      expect((await AppSettings.load()).presetHeight, preset);
+      if (preset != 480) await tap(find.text('${preset}p'));
+    }
     expect(find.text('320×240 → 640×480　拡大'), findsOneWidget);
     expect(find.text('1280×960 → 640×480　縮小'), findsOneWidget);
     expect(find.text('640×480 → 640×480　同じサイズ'), findsOneWidget);
